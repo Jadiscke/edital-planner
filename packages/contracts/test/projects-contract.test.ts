@@ -36,3 +36,13 @@ test("the OpenAPI contract exposes binary edital upload and observable processin
   assert.equal(statusSchema.$ref, "#/components/schemas/ProcessingJob");
   assert.ok(status.responses["404"]);
 });
+
+test("the OpenAPI contract separates archived projects and exposes lifecycle commands", () => {
+  const list = projectApiDocument.paths["/projects"].get;
+  assert.equal(list.parameters?.some((parameter) => parameter.name === "status"), true);
+  assert.ok(projectApiDocument.paths["/projects/{projectId}/archive"].post);
+  const duplicate = projectApiDocument.paths["/projects/{projectId}/duplicates"].post;
+  assert.equal(duplicate.parameters.some((parameter) => parameter.name === "Idempotency-Key"), true);
+  assert.deepEqual(projectApiDocument.components.schemas.Project.properties.status.enum, ["active", "archived"]);
+  assert.ok(projectApiDocument.components.schemas.Project.properties.sourceProjectId);
+});

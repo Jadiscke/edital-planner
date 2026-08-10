@@ -50,3 +50,40 @@ test("repeating a creation with the same tenant-scoped idempotency key returns o
   assert.equal(repeated.id, first.id);
   assert.equal((await projects.list(candidate)).length, 1);
 });
+
+test("archiving removes a project from active work without erasing it", async () => {
+  const projects = new ProjectService(new InMemoryProjectRepository());
+  const candidate = { issuer: "https://identity.test", tenantId: "tenant-a", subjectId: "candidate-a" };
+  const created = await projects.create(
+    candidate,
+    { concurso: "TCU", cargo: "Auditor Federal", area: "Controle Externo" },
+    "archive-request",
+  );
+
+  const archived = await projects.archive(candidate, created.id);
+
+  assert.equal(archived.status, "archived");
+  assert.ok(archived.archivedAt);
+  assert.deepEqual(await projects.list(candidate, "active"), []);
+  assert.deepEqual(await projects.list(candidate, "archived"), [archived]);
+});
+
+test("duplicating creates an independently editable active project with a traceable origin", async () => {
+  const projects = new ProjectService(new InMemoryProjectRepository());
+  const owner = { issuer: "https://identity.test", tenantId: "tenant-a", subjectId: "candidate-a" };
+  const outsider = { issuer: "https://identity.test", tenantId: "tenant-b", subjectId: "candidate-b" };
+  const original = await projects.create(
+    owner,
+    { concurso: "BACEN", cargo: "Analista", area: "Tecnologia" },
+    "original-request",
+  );
+
+  const duplicate = await projects.duplicate(owner, original.id, "duplicate-request");
+  await projects.update(owner, duplicate.id, { area: "Economia" });
+
+  assert.notEqual(duplicate.id, original.id);
+  assert.equal(duplicate.sourceProjectId, original.id);
+  assert.equal(duplicate.status, "active");
+  assert.equal((await projects.list(owner)).find((project) => project.id === original.id)?.area, "Tecnologia");
+  await assert.rejects(projects.duplicate(outsider, original.id, "foreign-request"), /Projeto não encontrado/);
+});

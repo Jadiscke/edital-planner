@@ -12,6 +12,7 @@ import {
   Headers,
   Inject,
   Injectable,
+  HttpCode,
   HttpException,
   HttpStatus,
   Module,
@@ -83,7 +84,7 @@ interface AuthenticationOptions {
   secureCookies: boolean;
   allowedOrigins: readonly string[];
   testIdentity?: AccessIdentity;
-  resetTestState?: () => void;
+  resetTestState?: () => void | Promise<void>;
 }
 
 class LoginRateLimiter {
@@ -167,8 +168,11 @@ class ProjectsController {
   }
 
   @Get()
-  async list(@Req() request: AuthenticatedRequest) {
-    return (await this.projects.list(request.identity)).map(publicProject);
+  async list(@Req() request: AuthenticatedRequest, @Query("status") status?: string) {
+    if (status !== undefined && status !== "active" && status !== "archived") {
+      throw new BadRequestException("Use status active ou archived.");
+    }
+    return (await this.projects.list(request.identity, status ?? "active")).map(publicProject);
   }
 
   @Post()
@@ -188,6 +192,34 @@ class ProjectsController {
       throw new BadRequestException({ message: "Revise os campos destacados.", fieldErrors: toFieldErrors(parsed.error) });
     }
     return publicProject(await this.projects.create(request.identity, parsed.data, idempotencyKey));
+  }
+
+  @Post(":projectId/archive")
+  @HttpCode(200)
+  async archive(@Req() request: AuthenticatedRequest, @Param("projectId") projectId: string) {
+    try {
+      return publicProject(await this.projects.archive(request.identity, projectId));
+    } catch (error) {
+      if (error instanceof ProjectNotFoundError) throw new NotFoundException("Projeto não encontrado.");
+      throw error;
+    }
+  }
+
+  @Post(":projectId/duplicates")
+  async duplicate(
+    @Req() request: AuthenticatedRequest,
+    @Param("projectId") projectId: string,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+  ) {
+    if (!idempotencyKey || idempotencyKey.length < 8) {
+      throw new BadRequestException("Informe uma chave de idempotência válida.");
+    }
+    try {
+      return publicProject(await this.projects.duplicate(request.identity, projectId, idempotencyKey));
+    } catch (error) {
+      if (error instanceof ProjectNotFoundError) throw new NotFoundException("Projeto não encontrado.");
+      throw error;
+    }
   }
 
   @Patch(":projectId")
@@ -342,7 +374,7 @@ class AuthenticationController {
   async testSession(@Req() request: FastifyRequest, @Res() reply: FastifyReply) {
     if (!this.authentication.testIdentity) throw new NotFoundException();
     this.assertOrigin(request);
-    this.authentication.resetTestState?.();
+    await this.authentication.resetTestState?.();
     const sessionId = await this.authentication.sessions.create(
       this.authentication.testIdentity,
       new Date(Date.now() + 60 * 60 * 1_000),
@@ -381,7 +413,7 @@ export interface CreateApiOptions {
   bff?: BffAuthenticator;
   secureCookies?: boolean;
   testIdentity?: AccessIdentity;
-  resetTestState?: () => void;
+  resetTestState?: () => void | Promise<void>;
   openIdConnectUrl: string;
   trustedProxyIps: readonly string[];
 }
