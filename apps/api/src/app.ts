@@ -17,12 +17,14 @@ import {
   Module,
   NotFoundException,
   Patch,
+  Param,
   Post,
   Query,
   Req,
   Res,
   ServiceUnavailableException,
   UnauthorizedException,
+  UnprocessableEntityException,
   UseGuards,
 } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
@@ -38,6 +40,10 @@ import {
 } from "../../../packages/domain/src/projects.ts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { MembershipResolver } from "./authorization.ts";
+import {
+  DocumentRejectedError,
+  type DocumentPipeline,
+} from "../../../packages/domain/src/documents.ts";
 import {
   FLOW_COOKIE,
   SESSION_COOKIE,
@@ -96,6 +102,7 @@ class LoginRateLimiter {
 }
 
 const PROJECT_REPOSITORY = Symbol("PROJECT_REPOSITORY");
+const DOCUMENT_PIPELINE = Symbol("DOCUMENT_PIPELINE");
 const VERIFY_ACCESS_TOKEN = Symbol("VERIFY_ACCESS_TOKEN");
 const AUTH_OPTIONS = Symbol("AUTH_OPTIONS");
 const OPENAPI_DOCUMENT = Symbol("OPENAPI_DOCUMENT");
@@ -197,6 +204,44 @@ class ProjectsController {
       if (error instanceof ProjectNotFoundError) throw new NotFoundException("Projeto não encontrado.");
       throw error;
     }
+  }
+}
+
+@Controller()
+@UseGuards(OidcGuard)
+class DocumentsController {
+  constructor(
+    @Inject(PROJECT_REPOSITORY) private readonly projects: ProjectRepository,
+    @Inject(DOCUMENT_PIPELINE) private readonly documents: DocumentPipeline,
+  ) {}
+
+  @Post("projects/:projectId/editais")
+  async upload(
+    @Req() request: AuthenticatedRequest,
+    @Param("projectId") projectId: string,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+    @Headers("content-disposition") contentDisposition: string | undefined,
+    @Body() body: Buffer,
+  ) {
+    if (!idempotencyKey || idempotencyKey.length < 8) throw new BadRequestException("Informe uma chave de idempotência válida.");
+    const ownsProject = (await this.projects.list(request.identity)).some((project) => project.id === projectId);
+    if (!ownsProject) throw new NotFoundException("Projeto não encontrado.");
+    const filename = /filename="?([^";]+)"?/i.exec(contentDisposition ?? "")?.[1] ?? "edital.pdf";
+    try {
+      return await this.documents.upload({ identity: request.identity, projectId, idempotencyKey, filename, bytes: body });
+    } catch (error) {
+      if (error instanceof DocumentRejectedError) {
+        throw new UnprocessableEntityException({ code: error.code, message: error.message });
+      }
+      throw error;
+    }
+  }
+
+  @Get("processing-jobs/:jobId")
+  async status(@Req() request: AuthenticatedRequest, @Param("jobId") jobId: string) {
+    const job = await this.documents.getJob(request.identity, jobId);
+    if (!job) throw new NotFoundException("Processamento não encontrado.");
+    return job;
   }
 }
 
@@ -307,10 +352,14 @@ class AuthenticationController {
   }
 
   private allowedReturnTo(candidate: string | undefined): string {
-    const fallback = new URL("/", this.authentication.allowedOrigins[0]).toString();
+    const fallback = new URL("/app/", this.authentication.allowedOrigins[0]).toString();
     if (!candidate) return fallback;
     const url = new URL(candidate, fallback);
     if (!this.authentication.allowedOrigins.includes(url.origin)) throw new BadRequestException("Destino de login inválido.");
+    if (url.pathname !== "/app" && !url.pathname.startsWith("/app/")) {
+      throw new BadRequestException("Destino de login inválido.");
+    }
+    if (url.pathname === "/app") url.pathname = "/app/";
     return url.toString();
   }
 
@@ -324,6 +373,7 @@ class AuthenticationController {
 
 export interface CreateApiOptions {
   projects: ProjectRepository;
+  documents: DocumentPipeline;
   verifyAccessToken: VerifyAccessToken;
   sessions: SessionStore;
   memberships: MembershipResolver;
@@ -353,9 +403,10 @@ export async function createApi(options: CreateApiOptions): Promise<FastifyInsta
   };
 
   @Module({
-    controllers: [ProjectsController, ContractController, AuthenticationController],
+    controllers: [ProjectsController, DocumentsController, ContractController, AuthenticationController],
     providers: [
       { provide: PROJECT_REPOSITORY, useValue: options.projects },
+      { provide: DOCUMENT_PIPELINE, useValue: options.documents },
       { provide: VERIFY_ACCESS_TOKEN, useValue: options.verifyAccessToken },
       { provide: AUTH_OPTIONS, useValue: authentication },
       { provide: OPENAPI_DOCUMENT, useValue: createProjectApiDocument(options.openIdConnectUrl) },
@@ -364,12 +415,13 @@ export async function createApi(options: CreateApiOptions): Promise<FastifyInsta
   })
   class ApiModule {}
 
-  const adapter = new FastifyAdapter({ logger: false, bodyLimit: 64 * 1024, trustProxy: [...options.trustedProxyIps] });
+  const adapter = new FastifyAdapter({ logger: false, bodyLimit: 10 * 1024 * 1024, trustProxy: [...options.trustedProxyIps] });
+  adapter.getInstance().addContentTypeParser("application/pdf", { parseAs: "buffer" }, (_request, body, done) => done(null, body));
   const app = await NestFactory.create(ApiModule, adapter, { logger: false });
   app.enableCors({
     origin: [...options.allowedOrigins],
     methods: ["GET", "POST", "PATCH", "OPTIONS"],
-    allowedHeaders: ["authorization", "content-type", "idempotency-key", "x-request-id"],
+    allowedHeaders: ["authorization", "content-type", "content-disposition", "idempotency-key", "x-request-id"],
     credentials: true,
     maxAge: 600,
   });

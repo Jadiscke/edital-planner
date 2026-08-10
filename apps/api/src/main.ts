@@ -6,6 +6,9 @@ import { PostgresProjectRepository } from "./persistence/projects.ts";
 import { PostgresMembershipResolver } from "./persistence/authorization.ts";
 import { PostgresAuthorizationFlowStore, PostgresSessionStore } from "./persistence/sessions.ts";
 import { assertRuntimeDatabaseRole } from "./persistence/runtime-role.ts";
+import { createDocumentInfrastructure } from "./documents/infrastructure.ts";
+import { PostgresS3DocumentPipeline } from "./documents/pipeline.ts";
+import { BullMqDocumentQueue } from "./documents/worker.ts";
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
@@ -40,11 +43,19 @@ const oidc = await createDiscoveredOidcBff({
 const allowedOrigins = requiredEnvironment("WEB_ORIGINS").split(",").map((origin) => new URL(origin.trim()).origin);
 const proxySetting = requiredEnvironment("TRUSTED_PROXY_IPS");
 const trustedProxyIps = proxySetting === "none" ? [] : proxySetting.split(",").map((address) => address.trim()).filter(Boolean);
+const documentInfrastructure = createDocumentInfrastructure(process.env);
+const documentQueue = new BullMqDocumentQueue(documentInfrastructure);
 const callbackUrl = new URL(requiredEnvironment("OIDC_CALLBACK_URL"));
 if (productionSecurity && (allowedOrigins.some((origin) => new URL(origin).protocol !== "https:") || callbackUrl.protocol !== "https:")) throw new Error("Production origins and OIDC callback must use HTTPS");
 if (!productionSecurity && [...allowedOrigins.map((origin) => new URL(origin)), callbackUrl].some((url) => !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) throw new Error("Development plaintext is restricted to loopback hosts");
 const api = await createApi({
   projects: new PostgresProjectRepository(pool),
+  documents: new PostgresS3DocumentPipeline({
+    pool,
+    s3: documentInfrastructure.s3,
+    bucket: documentInfrastructure.bucket,
+    queue: documentQueue,
+  }),
   sessions: new PostgresSessionStore(pool),
   memberships: new PostgresMembershipResolver(pool),
   verifyAccessToken: oidc.verifyAccessToken,
@@ -53,6 +64,11 @@ const api = await createApi({
   secureCookies: productionSecurity,
   trustedProxyIps,
   openIdConnectUrl: `${requiredEnvironment("OIDC_ISSUER").replace(/\/$/, "")}/.well-known/openid-configuration`,
+});
+api.addHook("onClose", async () => {
+  await documentQueue.close();
+  documentInfrastructure.s3.destroy();
+  await pool.end();
 });
 await api.listen({
   host: process.env.API_HOST ?? "127.0.0.1",

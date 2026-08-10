@@ -16,7 +16,7 @@ before(async () => {
   const build = spawnSync("pnpm", ["build"], {
     cwd: appRoot,
     encoding: "utf8",
-    env: { ...process.env, ASTRO_TELEMETRY_DISABLED: "1", PUBLIC_SIGNUP_URL: "/criar-conta" },
+    env: { ...process.env, ASTRO_TELEMETRY_DISABLED: "1", PUBLIC_SIGNUP_URL: "" },
   });
   assert.equal(build.status, 0, build.stderr || build.stdout);
 
@@ -54,7 +54,7 @@ test("keyboard entry and semantic landmarks are exposed on the selected landing"
   const navigation = page.getByRole("navigation", { name: "Navegação principal" });
   await navigation.waitFor();
   await page.getByRole("complementary", { name: "Exemplo do caminho entre o edital e uma tarefa de estudo" }).waitFor();
-  assert.equal(await page.getByRole("link", { name: "Criar meu projeto", exact: true }).first().getAttribute("href"), "/criar-conta");
+  assert.equal(await page.getByRole("link", { name: "Criar meu projeto", exact: true }).first().getAttribute("href"), "/app/");
 
   await page.keyboard.press("Tab");
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("skip-link")), true);
@@ -112,9 +112,9 @@ test("the selected landing fits a mobile viewport and keeps signup links configu
 
   await page.goto(baseUrl);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "landing overflows the mobile viewport");
-  const signup = page.locator('a[href="/criar-conta"]').first();
+  const signup = page.locator('a[href="/app/"]').first();
   await signup.waitFor();
-  assert.equal(await signup.getAttribute("href"), "/criar-conta");
+  assert.equal(await signup.getAttribute("href"), "/app/");
 
   assert.equal(await page.locator(".prototype-switcher, [data-variant], [data-key]").count(), 0);
   await page.close();

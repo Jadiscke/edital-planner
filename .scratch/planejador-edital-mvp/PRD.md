@@ -9,6 +9,21 @@ Origem: [`docs/product/visao-escopo-arquitetura-fonte.md`](../../docs/product/vi
 
 Construir uma plataforma web que transforme editais e índices de materiais em uma trilha de estudo rastreável. O produto extrai e verticaliza conteúdos, sugere associações com evidência e confiança, permite revisão humana, gera planos semanais adaptativos e registra execução sem reescrever o histórico.
 
+## Progresso e próximos PRs
+
+Concluídas: issues 01, 02 e 04.
+
+Ordem recomendada a partir de 2026-08-10:
+
+1. **Próximo PR — issue 05:** verticalizar o edital processado com evidência verificável. É o próximo passo do caminho crítico desbloqueado pela issue 04.
+2. **PR independente — issue 08:** importar e revisar índice de material. Pode avançar em paralelo porque depende apenas da issue 02.
+3. **PR independente — issue 03:** arquivar e duplicar projeto. Está desbloqueada, mas não antecipa o fluxo principal edital → planejamento.
+4. **Depois da issue 05 — issue 06:** aplicar fallback do OpenRouter e encaminhamento para revisão humana.
+5. **Depois das issues 05 e 06 — issue 07:** revisar e aprovar a verticalização.
+6. **Depois das issues 07 e 08 — issue 09:** associar material e visualizar cobertura.
+
+Cada issue deve permanecer em um PR próprio para preservar as fatias verticais e permitir revisão, reversão e validação independentes.
+
 ## Problem Statement
 
 Candidatos gastam tempo decompondo editais pouco padronizados, localizando conteúdo em materiais e mantendo planilhas que não explicam cobertura, prioridade ou impacto de atrasos. Automação sem evidência cria outro risco: associações incorretas podem direcionar o estudo para o conteúdo errado.

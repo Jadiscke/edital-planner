@@ -1,4 +1,4 @@
-const DEFAULT_SIGNUP_ROUTE = "/cadastro";
+const DEFAULT_SIGNUP_ROUTE = "/app/";
 
 export function getPublicSignupUrl(envValue = import.meta.env.PUBLIC_SIGNUP_URL): string {
   const candidate = envValue?.trim() || DEFAULT_SIGNUP_ROUTE;

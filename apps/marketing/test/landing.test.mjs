@@ -14,7 +14,7 @@ test("the marketing site builds to static HTML", () => {
     env: {
       ...process.env,
       ASTRO_TELEMETRY_DISABLED: "1",
-      PUBLIC_SIGNUP_URL: "/criar-conta",
+      PUBLIC_SIGNUP_URL: "",
     },
   });
 
@@ -46,9 +46,9 @@ test("the selected landing is the only production design and has no prototype re
     assert.match(html, new RegExp(`href="#${section}"`));
   }
 
-  const signupLinks = html.match(/href="\/criar-conta"/g) ?? [];
+  const signupLinks = html.match(/href="\/app\/"/g) ?? [];
   assert.ok(signupLinks.length >= 3, "the landing should repeat its configured signup action at useful decision points");
-  assert.doesNotMatch(html, /href="https?:\/\/[^\"]+\/criar-conta"/);
+  assert.doesNotMatch(html, /href="https?:\/\/[^\"]+\/app\/"/);
   assert.doesNotMatch(html, /data-variant|data-key|variant-[abc]|prototype-switcher|URLSearchParams|Mesa de estudos|Mapa de cobertura/i);
   assert.doesNotMatch(html, /Sem cartão|1 edital|>Essencial<|>Pro<|Recomendado/i);
   assert.match(html, /Catálogo em definição/);

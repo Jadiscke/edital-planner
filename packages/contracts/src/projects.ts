@@ -65,6 +65,50 @@ const errorSchema = {
 const json = (schema: object) => ({ "application/json": { schema } });
 const response = (description: string, schema?: object) => ({ description, ...(schema ? { content: json(schema) } : {}) });
 const protectedSecurity = [{ cookieSession: [] }, { oidc: [] }] as const;
+const processingJobSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["id", "documentVersionId", "projectId", "status", "correlationId", "createdAt", "updatedAt"],
+  properties: {
+    id: { type: "string", format: "uuid" },
+    documentVersionId: { type: "string", format: "uuid" },
+    projectId: { type: "string", format: "uuid" },
+    status: { type: "string", enum: ["pending", "processing", "completed", "failed_recoverable"] },
+    correlationId: { type: "string", format: "uuid" },
+    errorCode: { type: "string" },
+    createdAt: { type: "string", format: "date-time" },
+    updatedAt: { type: "string", format: "date-time" },
+  },
+} as const;
+const documentVersionSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["id", "projectId", "versionNumber", "filename", "sha256", "sizeBytes", "createdAt"],
+  properties: {
+    id: { type: "string", format: "uuid" },
+    projectId: { type: "string", format: "uuid" },
+    versionNumber: { type: "integer", minimum: 1 },
+    filename: { type: "string" },
+    sha256: { type: "string", pattern: "^[0-9a-f]{64}$" },
+    sizeBytes: { type: "integer", minimum: 1, maximum: 5 * 1024 * 1024 },
+    createdAt: { type: "string", format: "date-time" },
+  },
+} as const;
+const acceptedDocumentSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["documentVersion", "job"],
+  properties: {
+    documentVersion: { $ref: "#/components/schemas/DocumentVersion" },
+    job: { $ref: "#/components/schemas/ProcessingJob" },
+  },
+} as const;
+const idempotencyHeader = {
+  name: "Idempotency-Key",
+  in: "header",
+  required: true,
+  schema: { type: "string", minLength: 8, maxLength: 128 },
+} as const;
 
 export function createProjectApiDocument(openIdConnectUrl: string) {
   return {
@@ -132,12 +176,7 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
           operationId: "createProject",
           summary: "Criar um projeto uma única vez",
           security: protectedSecurity,
-          parameters: [{
-            name: "Idempotency-Key",
-            in: "header",
-            required: true,
-            schema: { type: "string", minLength: 8, maxLength: 128 },
-          }],
+          parameters: [idempotencyHeader],
           requestBody: { required: true, content: json(projectInputSchema) },
           responses: {
             "201": response("Projeto criado ou criação idempotente recuperada", projectSchema),
@@ -163,13 +202,58 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
           },
         },
       },
+      "/projects/{projectId}/editais": {
+        post: {
+          operationId: "uploadEdital",
+          summary: "Enviar e versionar um edital em PDF",
+          security: protectedSecurity,
+          parameters: [
+            { name: "projectId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+            idempotencyHeader,
+            { name: "Content-Disposition", in: "header", required: false, schema: { type: "string" } },
+          ],
+          requestBody: {
+            required: true,
+            content: { "application/pdf": { schema: { type: "string", format: "binary", maxLength: 5 * 1024 * 1024 } } },
+          },
+          responses: {
+            "201": response("Versão e ProcessingJob criados, ou upload idempotente recuperado", acceptedDocumentSchema),
+            "400": response("Chave de idempotência inválida", errorSchema),
+            "401": response("Sessão ou token inválido", errorSchema),
+            "403": response("Origem não permitida", errorSchema),
+            "404": response("Projeto ausente ou pertencente a outro tenant", errorSchema),
+            "422": response("PDF inválido, protegido ou acima do limite", errorSchema),
+          },
+        },
+      },
+      "/processing-jobs/{jobId}": {
+        get: {
+          operationId: "getProcessingJob",
+          summary: "Consultar o processamento de um edital",
+          security: protectedSecurity,
+          parameters: [{ name: "jobId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+          responses: {
+            "200": response("Estado durável do processamento", { $ref: "#/components/schemas/ProcessingJob" }),
+            "401": response("Sessão ou token inválido", errorSchema),
+            "404": response("Processamento ausente ou pertencente a outro tenant", errorSchema),
+          },
+        },
+      },
     },
     components: {
       securitySchemes: {
         cookieSession: { type: "apiKey", in: "cookie", name: "planejador_session", description: "Sessão BFF opaca, Secure, HttpOnly e SameSite=Lax." },
         oidc: { type: "openIdConnect", openIdConnectUrl, description: "Token de API para clientes não-browser; issuer e audience são fixos." },
       },
-      schemas: { CreateProjectInput: projectInputSchema, UpdateProjectInput: updateInputSchema, Project: projectSchema, Error: errorSchema },
+      schemas: {
+        CreateProjectInput: projectInputSchema,
+        UpdateProjectInput: updateInputSchema,
+        Project: projectSchema,
+        DocumentVersion: documentVersionSchema,
+        ProcessingJob: processingJobSchema,
+        AcceptedDocument: acceptedDocumentSchema,
+        Error: errorSchema,
+      },
     },
   } as const;
 }

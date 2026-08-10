@@ -25,19 +25,27 @@ test("all approved issues are publishable, testable vertical slices", async () =
   for (const issueName of issueNames) {
     const issuePath = path.join(issuesDirectory, issueName);
     const content = await readFile(issuePath, "utf8");
-    const criteria = content.match(/^- \[ \]/gm) ?? [];
+    const openCriteria = content.match(/^- \[ \]/gm) ?? [];
+    const completedCriteria = content.match(/^- \[x\]/gm) ?? [];
+    const status = content.match(/^Status: (ready-for-agent|completed)$/m)?.[1];
 
-    assert.match(content, /^Status: ready-for-agent$/m, issueName);
+    assert.ok(status, `${issueName}: estado inválido`);
     assert.match(content, /^## Parent$/m, issueName);
     assert.match(content, /^## What to build$/m, issueName);
     assert.match(content, /^## Acceptance criteria$/m, issueName);
     assert.match(content, /^## Blocked by$/m, issueName);
-    assert.ok(criteria.length >= 5, `${issueName}: critérios insuficientes`);
+    assert.ok(openCriteria.length + completedCriteria.length >= 5, `${issueName}: critérios insuficientes`);
     assert.match(content, /test/i, `${issueName}: sem verificação automatizada`);
+
+    if (status === "completed") {
+      assert.equal(openCriteria.length, 0, `${issueName}: conclusão com critérios abertos`);
+      assert.match(content, /^## Comments$/m, `${issueName}: conclusão sem histórico`);
+    } else {
+      assert.equal(completedCriteria.length, 0, `${issueName}: issue aberta com critérios concluídos`);
+    }
 
     for (const match of content.matchAll(/\]\((\d{2}-[^)]+\.md)\)/g)) {
       await access(path.join(issuesDirectory, match[1]));
     }
   }
 });
-
