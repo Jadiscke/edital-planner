@@ -32,6 +32,32 @@ test("candidate creates a first project and reload retrieves it", async ({ page 
   expect((await session.json()).authenticated).toBe(false);
 });
 
+test("candidate archives, consults after reload, and duplicates a project", async ({ page }) => {
+  await establishSession(page);
+  await page.goto("/app/");
+  await page.getByLabel("Concurso").fill("STJ Lifecycle");
+  await page.getByLabel("Cargo").fill("Analista de Ciclo");
+  await page.getByLabel("Área").fill("Administrativa");
+  await page.getByRole("button", { name: "Criar Minha Trilha" }).click();
+  await expect(page.getByText("Analista de Ciclo")).toBeVisible();
+
+  await page.getByRole("button", { name: "Arquivar STJ Lifecycle" }).click();
+  await expect(page.getByRole("alertdialog", { name: "Arquivar Projeto" })).toBeVisible();
+  await page.getByRole("button", { name: "Confirmar Arquivamento" }).click();
+  await expect(page.getByText(/Projeto arquivado/)).toBeVisible();
+  await expect(page.getByText("Analista de Ciclo")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Projetos Arquivados" }).click();
+  await expect(page).toHaveURL(/projects=archived/);
+  await expect(page.getByText("Analista de Ciclo")).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("Analista de Ciclo")).toBeVisible();
+  await page.getByRole("button", { name: "Duplicar STJ Lifecycle" }).click();
+  await expect(page.getByText(/Duplicata criada/)).toBeVisible();
+  await page.getByRole("button", { name: "Projetos Ativos" }).click();
+  await expect(page.getByText("Cópia rastreável")).toBeVisible();
+});
+
 test("the final flow fits desktop and mobile without prototype behavior or console errors", async ({ page }, testInfo) => {
   test.setTimeout(60_000);
   await establishSession(page);

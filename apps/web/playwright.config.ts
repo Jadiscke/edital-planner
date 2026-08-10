@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const realPostgres = process.env.PLAYWRIGHT_REAL_POSTGRES ?? "true";
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
@@ -13,7 +15,7 @@ export default defineConfig({
   projects: [{ name: "chrome", use: { ...devices["Desktop Chrome"], channel: "chrome" } }],
   webServer: [
     {
-      command: "pnpm --filter @planejador/api dev:test",
+      command: `PLAYWRIGHT_REAL_POSTGRES=${realPostgres} pnpm --filter @planejador/api dev:test`,
       url: "http://127.0.0.1:3001/projects",
       reuseExistingServer: false,
       timeout: 30_000,

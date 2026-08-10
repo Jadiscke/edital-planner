@@ -20,7 +20,7 @@ describe("first project journey", () => {
     expect(screen.getByText("Informe o cargo.")).toBeVisible();
     expect(screen.getByText("Informe a área.")).toBeVisible();
     expect(screen.getByLabelText("Concurso")).toHaveFocus();
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
   });
 
   it("creates a project and shows it again from the persisted list", async () => {
@@ -118,5 +118,40 @@ describe("first project journey", () => {
     expect(logoutCall?.[1]).toMatchObject({ method: "POST", credentials: "include" });
     expect(screen.queryByText("Sessão Protegida")).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Sessão encerrada");
+  });
+
+  it("archives with confirmation, consults the archive, and duplicates an independent active project", async () => {
+    const original = {
+      id: "bc42a432-72ad-4df6-8b71-2f74f6f2f532", concurso: "BACEN", cargo: "Analista", area: "Tecnologia",
+      status: "active", createdAt: "2026-08-10T12:00:00.000Z", updatedAt: "2026-08-10T12:00:00.000Z",
+    };
+    let archived = false;
+    let duplicated = false;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const path = String(url);
+      if (path.endsWith(`/projects/${original.id}/archive`) && init?.method === "POST") {
+        archived = true;
+        return new Response(JSON.stringify({ ...original, status: "archived", archivedAt: "2026-08-10T13:00:00.000Z" }), { status: 200 });
+      }
+      if (path.endsWith(`/projects/${original.id}/duplicates`) && init?.method === "POST") {
+        duplicated = true;
+        return new Response(JSON.stringify({ ...original, id: "33ad600c-38e2-4656-b006-bf843f35f8de", status: "active", sourceProjectId: original.id }), { status: 201 });
+      }
+      if (path.endsWith("/projects?status=archived")) return new Response(JSON.stringify(archived ? [{ ...original, status: "archived" }] : []), { status: 200 });
+      return new Response(JSON.stringify(!archived ? [original] : duplicated ? [{ ...original, id: "33ad600c-38e2-4656-b006-bf843f35f8de", sourceProjectId: original.id }] : []), { status: 200 });
+    });
+    const user = userEvent.setup();
+    render(<App initialAuthenticated />);
+
+    await user.click(await screen.findByRole("button", { name: "Arquivar BACEN" }));
+    expect(screen.getByRole("alertdialog", { name: "Arquivar Projeto" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Confirmar Arquivamento" }));
+    expect(await screen.findByText(/Projeto arquivado/)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Projetos Arquivados" }));
+    expect(await screen.findByText("Analista")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Duplicar BACEN" }));
+    expect(await screen.findByText(/Duplicata criada/)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Projetos Ativos" }));
+    expect(await screen.findByText("Cópia rastreável")).toBeVisible();
   });
 });

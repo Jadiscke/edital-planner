@@ -19,10 +19,17 @@ export const projectsTable = pgTable(
     concurso: text("concurso").notNull(),
     cargo: text("cargo").notNull(),
     area: text("area").notNull(),
+    status: text("status").notNull().default("active"),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    sourceProjectId: uuid("source_project_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("projects_tenant_created_idx").on(table.tenantId, table.createdAt)],
+  (table) => [
+    index("projects_tenant_created_idx").on(table.tenantId, table.createdAt),
+    index("projects_tenant_status_created_idx").on(table.tenantId, table.status, table.createdAt),
+    index("projects_source_idx").on(table.sourceProjectId),
+  ],
 );
 
 export const projectIdempotencyTable = pgTable(
@@ -48,6 +55,7 @@ export const auditEventsTable = pgTable(
     resourceId: uuid("resource_id").notNull(),
     correlationId: uuid("correlation_id").notNull(),
     idempotencyKey: text("idempotency_key"),
+    sourceProjectId: uuid("source_project_id").references(() => projectsTable.id, { onDelete: "restrict" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index("audit_events_tenant_created_idx").on(table.tenantId, table.createdAt)],

@@ -9,6 +9,9 @@ export interface Project {
   area: string;
   createdAt: string;
   updatedAt: string;
+  status: "active" | "archived";
+  archivedAt?: string;
+  sourceProjectId?: string;
 }
 
 export interface ProjectDraft {
@@ -65,9 +68,19 @@ export const projectsApi = createApi({
   tagTypes: ["Project"],
   baseQuery: apiBaseQuery,
   endpoints: (build) => ({
-    listProjects: build.query<Project[], void>({
-      query: () => "/projects",
+    listProjects: build.query<Project[], Project["status"] | void>({
+      query: (status = "active") => status === "archived" ? "/projects?status=archived" : "/projects",
       providesTags: ["Project"],
+    }),
+    archiveProject: build.mutation<Project, string>({
+      query: (projectId) => ({ url: `/projects/${projectId}/archive`, method: "POST" }),
+      invalidatesTags: ["Project"],
+    }),
+    duplicateProject: build.mutation<Project, { projectId: string; idempotencyKey: string }>({
+      query: ({ projectId, idempotencyKey }) => ({
+        url: `/projects/${projectId}/duplicates`, method: "POST", headers: { "Idempotency-Key": idempotencyKey },
+      }),
+      invalidatesTags: ["Project"],
     }),
     createProject: build.mutation<Project, { body: ProjectDraft; idempotencyKey: string }>({
       query: ({ body, idempotencyKey }) => ({
@@ -105,7 +118,7 @@ export const projectsApi = createApi({
   }),
 });
 
-export const { useCreateProjectMutation, useGetProcessingJobQuery, useListProjectsQuery, useUploadEditalMutation } = projectsApi;
+export const { useArchiveProjectMutation, useCreateProjectMutation, useDuplicateProjectMutation, useGetProcessingJobQuery, useListProjectsQuery, useUploadEditalMutation } = projectsApi;
 
 export function createAppStore() {
   return configureStore({

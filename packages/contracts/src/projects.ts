@@ -44,12 +44,15 @@ const updateInputSchema = {
 const projectSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["id", "concurso", "cargo", "area", "createdAt", "updatedAt"],
+  required: ["id", "concurso", "cargo", "area", "status", "createdAt", "updatedAt"],
   properties: {
     id: { type: "string", format: "uuid" },
     concurso: { type: "string" },
     cargo: { type: "string" },
     area: { type: "string" },
+    status: { type: "string", enum: ["active", "archived"] },
+    archivedAt: { type: "string", format: "date-time" },
+    sourceProjectId: { type: "string", format: "uuid" },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
   },
@@ -109,6 +112,7 @@ const idempotencyHeader = {
   required: true,
   schema: { type: "string", minLength: 8, maxLength: 128 },
 } as const;
+const projectIdParameter = { name: "projectId", in: "path", required: true, schema: { type: "string", format: "uuid" } } as const;
 
 export function createProjectApiDocument(openIdConnectUrl: string) {
   return {
@@ -167,6 +171,7 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
           operationId: "listProjects",
           summary: "Listar projetos do tenant autenticado",
           security: protectedSecurity,
+          parameters: [{ name: "status", in: "query", required: false, schema: { type: "string", enum: ["active", "archived"], default: "active" } }],
           responses: {
             "200": response("Projetos autorizados", { type: "array", items: projectSchema }),
             "401": response("Sessão ou token inválido", errorSchema),
@@ -191,11 +196,40 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
           operationId: "updateProject",
           summary: "Atualizar um projeto autorizado",
           security: protectedSecurity,
-          parameters: [{ name: "projectId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+          parameters: [projectIdParameter],
           requestBody: { required: true, content: json(updateInputSchema) },
           responses: {
             "200": response("Projeto atualizado", projectSchema),
             "400": response("Dados inválidos", errorSchema),
+            "401": response("Sessão ou token inválido", errorSchema),
+            "403": response("Origem não permitida", errorSchema),
+            "404": response("Projeto ausente ou pertencente a outro tenant", errorSchema),
+          },
+        },
+      },
+      "/projects/{projectId}/archive": {
+        post: {
+          operationId: "archiveProject",
+          summary: "Arquivar um projeto sem apagar seu histórico",
+          security: protectedSecurity,
+          parameters: [projectIdParameter],
+          responses: {
+            "200": response("Projeto arquivado", projectSchema),
+            "401": response("Sessão ou token inválido", errorSchema),
+            "403": response("Origem não permitida", errorSchema),
+            "404": response("Projeto ausente ou pertencente a outro tenant", errorSchema),
+          },
+        },
+      },
+      "/projects/{projectId}/duplicates": {
+        post: {
+          operationId: "duplicateProject",
+          summary: "Duplicar um projeto com origem rastreável",
+          security: protectedSecurity,
+          parameters: [projectIdParameter, idempotencyHeader],
+          responses: {
+            "201": response("Duplicata ativa criada ou recuperada de forma idempotente", projectSchema),
+            "400": response("Chave de idempotência inválida", errorSchema),
             "401": response("Sessão ou token inválido", errorSchema),
             "403": response("Origem não permitida", errorSchema),
             "404": response("Projeto ausente ou pertencente a outro tenant", errorSchema),
@@ -208,7 +242,7 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
           summary: "Enviar e versionar um edital em PDF",
           security: protectedSecurity,
           parameters: [
-            { name: "projectId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+            projectIdParameter,
             idempotencyHeader,
             { name: "Content-Disposition", in: "header", required: false, schema: { type: "string" } },
           ],
