@@ -22,6 +22,13 @@ export class OpenRouterResponseError extends Error {
   }
 }
 
+export class OpenRouterStructuredOutputError extends OpenRouterResponseError {
+  constructor(message: string) {
+    super(message);
+    this.name = "OpenRouterStructuredOutputError";
+  }
+}
+
 const openRouterResponseSchema = z
   .object({
     id: z.string().min(1),
@@ -221,7 +228,7 @@ export class OpenRouterClient {
 
         const rawContent = completion.data.choices[0]?.message.content;
         if (!rawContent) {
-          throw new OpenRouterResponseError(
+          throw new OpenRouterStructuredOutputError(
             "Resposta do OpenRouter não contém conteúdo estruturado.",
           );
         }
@@ -230,14 +237,14 @@ export class OpenRouterClient {
         try {
           decoded = JSON.parse(rawContent);
         } catch {
-          throw new OpenRouterResponseError(
+          throw new OpenRouterStructuredOutputError(
             "O conteúdo retornado pelo OpenRouter não é JSON válido.",
           );
         }
 
         const result = request.resultSchema.safeParse(decoded);
         if (!result.success) {
-          throw new OpenRouterResponseError(
+          throw new OpenRouterStructuredOutputError(
             `Saída da IA rejeitada pelo schema ${request.schemaName}: ${z.prettifyError(result.error)}`,
           );
         }
@@ -283,4 +290,3 @@ export class OpenRouterClient {
     );
   }
 }
-

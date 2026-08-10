@@ -9,6 +9,7 @@ import { assertRuntimeDatabaseRole } from "./persistence/runtime-role.ts";
 import { createDocumentInfrastructure } from "./documents/infrastructure.ts";
 import { PostgresS3DocumentPipeline } from "./documents/pipeline.ts";
 import { BullMqDocumentQueue } from "./documents/worker.ts";
+import { PostgresVerticalizationRepository } from "./verticalizations/repository.ts";
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
@@ -56,6 +57,7 @@ const api = await createApi({
     bucket: documentInfrastructure.bucket,
     queue: documentQueue,
   }),
+  verticalizations: new PostgresVerticalizationRepository(pool),
   sessions: new PostgresSessionStore(pool),
   memberships: new PostgresMembershipResolver(pool),
   verifyAccessToken: oidc.verifyAccessToken,

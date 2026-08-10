@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
 
 import { CreateBucketCommand, DeleteObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { MinioContainer, type StartedMinioContainer } from "@testcontainers/minio";
@@ -12,6 +13,22 @@ import { PostgresS3DocumentPipeline } from "../src/documents/pipeline.ts";
 import { BullMqDocumentQueue, startDocumentWorker } from "../src/documents/worker.ts";
 import { runMigrations } from "../src/persistence/migrate.ts";
 import { PostgresProjectRepository } from "../src/persistence/projects.ts";
+import { PostgresVerticalizationRepository } from "../src/verticalizations/repository.ts";
+
+const verticalizationFixture = JSON.parse(await readFile(new URL("./fixtures/dataprev-verticalization.json", import.meta.url), "utf8"));
+
+function fixtureAiService() {
+  return {
+    verticalizeEdital: async (input: { documentVersionId: string }) => ({
+      data: { ...verticalizationFixture, documentVersionId: input.documentVersionId },
+      audit: {
+        requestId: "fixture-generation", promptVersion: "verticalize-edital@1.0.0",
+        model: "fixture/schema-validator", provider: null, durationMs: 12,
+        usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, cachedTokens: 0, reasoningTokens: 0, cost: null },
+      },
+    }),
+  };
+}
 
 function hasDockerRuntime() {
   try {
@@ -100,13 +117,19 @@ describe.skipIf(!runInfrastructureTests)("document processing with real Redis an
     expect(uploaded.job.status).toBe("pending");
     expect(await queue.getJobData(uploaded.job.id)).toEqual({ jobId: uploaded.job.id });
 
-    const worker = startDocumentWorker({ connection, queueName, pool, s3, bucket: "editais-worker-test" });
+    const verticalizations = new PostgresVerticalizationRepository(pool);
+    const worker = startDocumentWorker({ connection, queueName, pool, s3, bucket: "editais-worker-test", aiService: fixtureAiService(), verticalizations });
     try {
       const completed = await eventually(
         () => pipeline.getJob(identity, uploaded.job.id),
         (job) => job?.status === "completed",
       );
       expect(completed).toMatchObject({ status: "completed", documentVersionId: uploaded.documentVersion.id });
+      expect(await verticalizations.getByDocumentVersion(identity, uploaded.documentVersion.id)).toMatchObject({
+        documentVersionId: uploaded.documentVersion.id,
+        documentVersionNumber: 1,
+        execution: { promptVersion: "verticalize-edital@1.0.0", model: "fixture/schema-validator", totalTokens: 30, latencyMs: 12 },
+      });
     } finally {
       await worker.close();
       await queue.close();
@@ -140,7 +163,10 @@ describe.skipIf(!runInfrastructureTests)("document processing with real Redis an
       Key: `${identity.tenantId}/${project.id}/${uploaded.documentVersion.id}.pdf`,
     }));
 
-    const worker = startDocumentWorker({ connection, queueName, pool, s3, bucket: "editais-worker-test" });
+    const worker = startDocumentWorker({
+      connection, queueName, pool, s3, bucket: "editais-worker-test",
+      aiService: fixtureAiService(), verticalizations: new PostgresVerticalizationRepository(pool),
+    });
     try {
       const failed = await eventually(
         () => pipeline.getJob(identity, uploaded.job.id),

@@ -21,7 +21,7 @@ export interface ProcessingJob {
   id: string;
   documentVersionId: string;
   projectId: string;
-  status: "pending" | "processing" | "completed" | "failed_recoverable";
+  status: "pending" | "processing" | "completed" | "failed_recoverable" | "failed_invalid_output";
   correlationId: string;
   errorCode?: string;
   createdAt: string;
@@ -31,6 +31,16 @@ export interface ProcessingJob {
 export interface AcceptedDocument {
   documentVersion: { id: string; projectId: string; versionNumber: number; filename: string; sha256: string; sizeBytes: number; createdAt: string };
   job: ProcessingJob;
+}
+
+export interface VerticalizationEvidence { page: number; text: string; boundingBox: { x: number; y: number; width: number; height: number } | null }
+export interface VerticalizationNode { originalName: string; normalizedName: string; confidence: number; evidence: VerticalizationEvidence[] }
+export interface VerticalizationTopic extends VerticalizationNode { subtopics: VerticalizationNode[] }
+export interface VerticalizationSubject extends VerticalizationNode { topics: VerticalizationTopic[] }
+export interface VerticalizationTree {
+  id: string; projectId: string; documentVersionId: string; documentVersionNumber: number;
+  contest: { name: string; role: string; area: string }; subjects: VerticalizationSubject[]; warnings: string[]; createdAt: string;
+  execution: { requestId: string; promptVersion: string; model: string; provider: string | null; promptTokens: number; completionTokens: number; totalTokens: number; cost: number | null; latencyMs: number };
 }
 
 interface ApiRequest {
@@ -102,10 +112,13 @@ export const projectsApi = createApi({
     getProcessingJob: build.query<ProcessingJob, string>({
       query: (jobId) => `/processing-jobs/${jobId}`,
     }),
+    getVerticalization: build.query<VerticalizationTree, string>({
+      query: (documentVersionId) => `/document-versions/${documentVersionId}/verticalization`,
+    }),
   }),
 });
 
-export const { useCreateProjectMutation, useGetProcessingJobQuery, useListProjectsQuery, useUploadEditalMutation } = projectsApi;
+export const { useCreateProjectMutation, useGetProcessingJobQuery, useGetVerticalizationQuery, useListProjectsQuery, useUploadEditalMutation } = projectsApi;
 
 export function createAppStore() {
   return configureStore({

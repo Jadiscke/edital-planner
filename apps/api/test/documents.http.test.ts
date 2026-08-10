@@ -160,5 +160,16 @@ describe("edital upload HTTP contract", () => {
       status: "failed_recoverable",
       errorCode: "scanner_unavailable",
     });
+
+    const invalidPipeline = new InMemoryDocumentPipeline();
+    const invalid = await invalidPipeline.upload({
+      identity: { issuer: "https://issuer.test", subjectId: "candidate-a", tenantId: "tenant-a" },
+      projectId: project.json().id, idempotencyKey: "upload-invalid-output", filename: "edital.pdf", bytes: Buffer.from("%PDF-1.7\n%%EOF"),
+    });
+    await invalidPipeline.start(invalid.job.id);
+    await invalidPipeline.rejectInvalidOutput(invalid.job.id);
+    expect(await invalidPipeline.getJob({ issuer: "https://issuer.test", subjectId: "candidate-a", tenantId: "tenant-a" }, invalid.job.id)).toMatchObject({
+      status: "failed_invalid_output", errorCode: "verticalization_schema_invalid",
+    });
   });
 });

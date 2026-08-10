@@ -44,6 +44,7 @@ import {
   DocumentRejectedError,
   type DocumentPipeline,
 } from "../../../packages/domain/src/documents.ts";
+import { InMemoryVerticalizationRepository, type VerticalizationRepository } from "../../../packages/domain/src/verticalizations.ts";
 import {
   FLOW_COOKIE,
   SESSION_COOKIE,
@@ -103,6 +104,7 @@ class LoginRateLimiter {
 
 const PROJECT_REPOSITORY = Symbol("PROJECT_REPOSITORY");
 const DOCUMENT_PIPELINE = Symbol("DOCUMENT_PIPELINE");
+const VERTICALIZATION_REPOSITORY = Symbol("VERTICALIZATION_REPOSITORY");
 const VERIFY_ACCESS_TOKEN = Symbol("VERIFY_ACCESS_TOKEN");
 const AUTH_OPTIONS = Symbol("AUTH_OPTIONS");
 const OPENAPI_DOCUMENT = Symbol("OPENAPI_DOCUMENT");
@@ -246,6 +248,20 @@ class DocumentsController {
 }
 
 @Controller()
+@UseGuards(OidcGuard)
+class VerticalizationsController {
+  constructor(@Inject(VERTICALIZATION_REPOSITORY) private readonly verticalizations: VerticalizationRepository) {}
+
+  @Get("document-versions/:documentVersionId/verticalization")
+  async get(@Req() request: AuthenticatedRequest, @Param("documentVersionId") documentVersionId: string) {
+    const tree = await this.verticalizations.getByDocumentVersion(request.identity, documentVersionId);
+    if (!tree) throw new NotFoundException("Verticalização não encontrada.");
+    const { tenantId: _tenantId, ...publicTree } = tree;
+    return publicTree;
+  }
+}
+
+@Controller()
 class ContractController {
   constructor(@Inject(OPENAPI_DOCUMENT) private readonly document: ReturnType<typeof createProjectApiDocument>) {}
 
@@ -374,6 +390,7 @@ class AuthenticationController {
 export interface CreateApiOptions {
   projects: ProjectRepository;
   documents: DocumentPipeline;
+  verticalizations?: VerticalizationRepository;
   verifyAccessToken: VerifyAccessToken;
   sessions: SessionStore;
   memberships: MembershipResolver;
@@ -403,10 +420,11 @@ export async function createApi(options: CreateApiOptions): Promise<FastifyInsta
   };
 
   @Module({
-    controllers: [ProjectsController, DocumentsController, ContractController, AuthenticationController],
+    controllers: [ProjectsController, DocumentsController, VerticalizationsController, ContractController, AuthenticationController],
     providers: [
       { provide: PROJECT_REPOSITORY, useValue: options.projects },
       { provide: DOCUMENT_PIPELINE, useValue: options.documents },
+      { provide: VERTICALIZATION_REPOSITORY, useValue: options.verticalizations ?? new InMemoryVerticalizationRepository() },
       { provide: VERIFY_ACCESS_TOKEN, useValue: options.verifyAccessToken },
       { provide: AUTH_OPTIONS, useValue: authentication },
       { provide: OPENAPI_DOCUMENT, useValue: createProjectApiDocument(options.openIdConnectUrl) },

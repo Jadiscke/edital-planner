@@ -73,7 +73,7 @@ const processingJobSchema = {
     id: { type: "string", format: "uuid" },
     documentVersionId: { type: "string", format: "uuid" },
     projectId: { type: "string", format: "uuid" },
-    status: { type: "string", enum: ["pending", "processing", "completed", "failed_recoverable"] },
+    status: { type: "string", enum: ["pending", "processing", "completed", "failed_recoverable", "failed_invalid_output"] },
     correlationId: { type: "string", format: "uuid" },
     errorCode: { type: "string" },
     createdAt: { type: "string", format: "date-time" },
@@ -101,6 +101,53 @@ const acceptedDocumentSchema = {
   properties: {
     documentVersion: { $ref: "#/components/schemas/DocumentVersion" },
     job: { $ref: "#/components/schemas/ProcessingJob" },
+  },
+} as const;
+const evidenceSchema = {
+  type: "object", additionalProperties: false, required: ["page", "text", "boundingBox"],
+  properties: { page: { type: "integer", minimum: 1 }, text: { type: "string", minLength: 1 },
+    boundingBox: { oneOf: [{ type: "null" }, { type: "object", required: ["x", "y", "width", "height"],
+      properties: { x: { type: "number" }, y: { type: "number" }, width: { type: "number" }, height: { type: "number" } } }] } },
+} as const;
+const extractedNodeProperties = {
+  originalName: { type: "string", minLength: 1 }, normalizedName: { type: "string", minLength: 1 },
+  confidence: { type: "number", minimum: 0, maximum: 1 },
+  evidence: { type: "array", minItems: 1, items: { $ref: "#/components/schemas/VerticalizationEvidence" } },
+} as const;
+const verticalizationTreeSchema = {
+  type: "object", additionalProperties: false,
+  required: ["id", "projectId", "documentVersionId", "documentVersionNumber", "contest", "subjects", "warnings", "execution", "createdAt"],
+  properties: {
+    id: { type: "string", format: "uuid" }, projectId: { type: "string", format: "uuid" },
+    documentVersionId: { type: "string", format: "uuid" }, documentVersionNumber: { type: "integer", minimum: 1 },
+    contest: { type: "object", required: ["name", "role", "area"], properties: { name: { type: "string" }, role: { type: "string" }, area: { type: "string" } } },
+    subjects: {
+      type: "array", minItems: 1,
+      items: {
+        type: "object", required: ["originalName", "normalizedName", "confidence", "evidence", "topics"],
+        properties: {
+          ...extractedNodeProperties,
+          topics: {
+            type: "array",
+            items: {
+              type: "object", required: ["originalName", "normalizedName", "confidence", "evidence", "subtopics"],
+              properties: {
+                ...extractedNodeProperties,
+                subtopics: {
+                  type: "array",
+                  items: { type: "object", required: ["originalName", "normalizedName", "confidence", "evidence"], properties: extractedNodeProperties },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    warnings: { type: "array", items: { type: "string" } },
+    execution: { type: "object", required: ["requestId", "promptVersion", "model", "provider", "promptTokens", "completionTokens", "totalTokens", "cost", "latencyMs"],
+      properties: { requestId: { type: "string" }, promptVersion: { type: "string" }, model: { type: "string" }, provider: { type: ["string", "null"] },
+        promptTokens: { type: "integer" }, completionTokens: { type: "integer" }, totalTokens: { type: "integer" }, cost: { type: ["number", "null"] }, latencyMs: { type: "integer" } } },
+    createdAt: { type: "string", format: "date-time" },
   },
 } as const;
 const idempotencyHeader = {
@@ -239,6 +286,17 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
           },
         },
       },
+      "/document-versions/{documentVersionId}/verticalization": {
+        get: {
+          operationId: "getVerticalization", summary: "Consultar a árvore verticalizada e suas evidências", security: protectedSecurity,
+          parameters: [{ name: "documentVersionId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+          responses: {
+            "200": response("Árvore validada e rastreável", { $ref: "#/components/schemas/VerticalizationTree" }),
+            "401": response("Sessão ou token inválido", errorSchema),
+            "404": response("Verticalização ausente ou pertencente a outro tenant", errorSchema),
+          },
+        },
+      },
     },
     components: {
       securitySchemes: {
@@ -252,6 +310,8 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
         DocumentVersion: documentVersionSchema,
         ProcessingJob: processingJobSchema,
         AcceptedDocument: acceptedDocumentSchema,
+        VerticalizationEvidence: evidenceSchema,
+        VerticalizationTree: verticalizationTreeSchema,
         Error: errorSchema,
       },
     },

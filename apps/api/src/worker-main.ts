@@ -3,6 +3,8 @@ import { Pool } from "pg";
 import { createDocumentInfrastructure } from "./documents/infrastructure.ts";
 import { startDocumentWorker } from "./documents/worker.ts";
 import { assertRuntimeDatabaseRole } from "./persistence/runtime-role.ts";
+import { createAiService } from "@planejador/ai";
+import { PostgresVerticalizationRepository } from "./verticalizations/repository.ts";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -19,6 +21,8 @@ const worker = startDocumentWorker({
   pool,
   s3: infrastructure.s3,
   bucket: infrastructure.bucket,
+  aiService: createAiService(process.env),
+  verticalizations: new PostgresVerticalizationRepository(pool),
 });
 
 async function shutdown() {
