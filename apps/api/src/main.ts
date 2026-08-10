@@ -1,8 +1,11 @@
 import { Pool } from "pg";
+import { randomUUID } from "node:crypto";
+import { createAiService } from "../../../packages/ai/src/index.ts";
 
 import { createApi } from "./app.ts";
 import { createDiscoveredOidcBff } from "./oidc.ts";
 import { PostgresProjectRepository } from "./persistence/projects.ts";
+import { PostgresMaterialRepository } from "./persistence/materials.ts";
 import { PostgresMembershipResolver } from "./persistence/authorization.ts";
 import { PostgresAuthorizationFlowStore, PostgresSessionStore } from "./persistence/sessions.ts";
 import { assertRuntimeDatabaseRole } from "./persistence/runtime-role.ts";
@@ -45,6 +48,7 @@ const allowedOrigins = requiredEnvironment("WEB_ORIGINS").split(",").map((origin
 const proxySetting = requiredEnvironment("TRUSTED_PROXY_IPS");
 const trustedProxyIps = proxySetting === "none" ? [] : proxySetting.split(",").map((address) => address.trim()).filter(Boolean);
 const documentInfrastructure = createDocumentInfrastructure(process.env);
+const ai = createAiService(process.env);
 const documentQueue = new BullMqDocumentQueue(documentInfrastructure);
 const callbackUrl = new URL(requiredEnvironment("OIDC_CALLBACK_URL"));
 if (productionSecurity && (allowedOrigins.some((origin) => new URL(origin).protocol !== "https:") || callbackUrl.protocol !== "https:")) throw new Error("Production origins and OIDC callback must use HTTPS");
@@ -58,6 +62,19 @@ const api = await createApi({
     queue: documentQueue,
   }),
   verticalizations: new PostgresVerticalizationRepository(pool),
+  materials: new PostgresMaterialRepository(pool),
+  materialIndexExtractor: {
+    async extract(input) {
+      const result = await ai.extractMaterialIndex({ documentVersionId: randomUUID(), materialId: input.materialId, knownPageOffset: input.knownPageOffset,
+        ...(input.sourceKind === "pdf" ? { pdf: { fileName: input.sourceFilename, base64: input.base64 } } : { images: [{ page: 1, mimeType: input.mimeType as "image/png" | "image/jpeg" | "image/webp", base64: input.base64 }] }) });
+      const pathIds = new Map<string, string>();
+      const items = result.data.items.map((item, index) => {
+        const pathKey = item.path.join("\u001f"); const id = `item-${index + 1}`; pathIds.set(pathKey, id);
+        return { id, parentId: pathIds.get(item.path.slice(0, -1).join("\u001f")) ?? null, title: item.normalizedTitle, startPage: item.startPage, endPage: item.endPage, sourcePage: item.evidence[0]!.page };
+      });
+      return { pageOffset: result.data.pageOffset, items, audit: { requestId: result.audit.requestId, model: result.audit.model, provider: result.audit.provider, promptVersion: result.audit.promptVersion, durationMs: result.audit.durationMs, usage: { ...result.audit.usage } } };
+    },
+  },
   sessions: new PostgresSessionStore(pool),
   memberships: new PostgresMembershipResolver(pool),
   verifyAccessToken: oidc.verifyAccessToken,

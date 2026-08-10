@@ -4,6 +4,7 @@ import { Pool } from "pg";
 import { InMemoryProjectRepository } from "../../../packages/domain/src/projects.ts";
 import { InMemoryDocumentPipeline, type DocumentPipeline } from "../../../packages/domain/src/documents.ts";
 import { InMemoryVerticalizationRepository } from "../../../packages/domain/src/verticalizations.ts";
+import { InMemoryMaterialRepository } from "../../../packages/domain/src/materials.ts";
 import { createApi } from "./app.ts";
 import { InMemoryMembershipResolver } from "./authorization.ts";
 import { InMemorySessionStore } from "./sessions.ts";
@@ -49,11 +50,13 @@ class CompletingTestDocumentPipeline extends InMemoryDocumentPipeline {
   }
 }
 const documents = new CompletingTestDocumentPipeline();
+const materials = new InMemoryMaterialRepository();
 const qaFlows = new Map<string, string>();
 const api = await createApi({
   projects,
   documents,
   verticalizations,
+  materials,
   sessions: new InMemorySessionStore(),
   memberships,
   verifyAccessToken: async () => { throw new Error("Bearer tokens are disabled in E2E"); },
@@ -92,6 +95,7 @@ const api = await createApi({
     }
     documents.reset();
     verticalizations.reset();
+    materials.reset();
     qaFlows.clear();
   },
   openIdConnectUrl: "https://e2e.identity.test/.well-known/openid-configuration",

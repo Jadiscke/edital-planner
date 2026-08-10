@@ -5,6 +5,7 @@ import { EditalSpine } from "./EditalSpine.tsx";
 import { EditalUpload } from "./EditalUpload.tsx";
 import { ProjectComposer } from "./ProjectComposer.tsx";
 import { VerticalizationTree } from "./VerticalizationTree.tsx";
+import { MaterialIndexWorkspace } from "./MaterialIndexWorkspace.tsx";
 
 export function AccountLogin({ onLogin, error, status }: { onLogin: () => void; error: string; status: string }) {
   return (
@@ -53,6 +54,7 @@ export function ProjectWorkspace() {
         <EditalUpload onVerticalization={setVerticalization} />
       </aside>
       {verticalization ? <div className="verticalization-stage"><VerticalizationTree tree={verticalization} /></div> : null}
+      <MaterialIndexWorkspace />
     </main>
   );
 }

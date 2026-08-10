@@ -67,3 +67,20 @@ test(
     assert.ok(result.audit.usage.totalTokens > 0);
   },
 );
+
+test(
+  "OpenRouter returns a schema-valid material index with real credentials",
+  { skip: !paidLiveTestsEnabled },
+  async () => {
+    const service = createAiService(process.env);
+    const result = await service.extractMaterialIndex({
+      documentVersionId: "live-material-index-v1", materialId: "live-material-1", knownPageOffset: 12,
+      extractedText: ["SUMÁRIO", "Direito Administrativo ........ 15", "  Atos administrativos ........ 21", "Licitações ........ 48"].join("\n"),
+    });
+    assert.equal(result.data.materialId, "live-material-1");
+    assert.ok(result.data.items.length > 0);
+    assert.ok(result.data.items.every((item) => item.evidence[0]?.page));
+    assert.equal(result.audit.promptVersion, "extract-material-index@1.0.0");
+    assert.ok(result.audit.usage.totalTokens > 0);
+  },
+);

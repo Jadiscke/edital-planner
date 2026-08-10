@@ -51,3 +51,11 @@ test("the OpenAPI contract separates archived projects and exposes lifecycle com
   assert.deepEqual(projectApiDocument.components.schemas.Project.properties.status.enum, ["active", "archived"]);
   assert.ok(projectApiDocument.components.schemas.Project.properties.sourceProjectId);
 });
+
+test("the OpenAPI contract exposes material index review and explicit approval", () => {
+  const document = projectApiDocument;
+  assert.equal(document.paths["/projects/{projectId}/materials"].post.operationId, "createMaterial");
+  assert.equal(document.paths["/materials/{materialId}/index-versions"].post.operationId, "importMaterialIndex");
+  assert.equal(document.paths["/materials/{materialId}/index-versions/{versionId}/revisions"].post.operationId, "reviseMaterialIndex");
+  assert.equal(document.paths["/materials/{materialId}/index-versions/{versionId}/approval"].post.operationId, "approveMaterialIndex");
+});
