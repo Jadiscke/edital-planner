@@ -1,0 +1,32 @@
+{
+  "name": "@planejador/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "dev:test": "tsx src/test-main.ts",
+    "migrate": "tsx src/migrate-main.ts",
+    "test": "vitest run",
+    "test:postgres": "vitest run test/projects.postgres.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@nestjs/common": "11.1.29",
+    "@nestjs/core": "11.1.29",
+    "@nestjs/platform-fastify": "11.1.29",
+    "@planejador/contracts": "workspace:*",
+    "@planejador/domain": "workspace:*",
+    "drizzle-orm": "0.45.2",
+    "fastify": "5.11.3",
+    "jose": "6.1.0",
+    "pg": "8.16.3",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "11.7.2",
+    "@types/pg": "8.15.5",
+    "tsx": "4.20.5",
+    "vitest": "3.2.4"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "name": "@planejador/domain",
+  "private": true,
+  "type": "module"
+}

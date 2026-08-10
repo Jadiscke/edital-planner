@@ -8,13 +8,22 @@
     "ai:check": "node --env-file-if-exists=.env --experimental-strip-types packages/ai/src/cli.ts check",
     "ai:extract-index": "node --env-file-if-exists=.env --experimental-strip-types packages/ai/src/cli.ts extract-index",
     "ai:verticalize": "node --env-file-if-exists=.env --experimental-strip-types packages/ai/src/cli.ts verticalize",
-    "test": "node --test --experimental-strip-types \"packages/ai/test/**/*.test.ts\" \"tests/**/*.test.mjs\"",
+    "dev:api": "pnpm --filter @planejador/api dev",
+    "dev:web": "pnpm --filter @planejador/web dev",
+    "test": "node --test --experimental-strip-types \"packages/ai/test/**/*.test.ts\" \"packages/domain/test/**/*.test.ts\" \"packages/contracts/test/**/*.test.ts\" \"tests/**/*.test.mjs\" && pnpm --filter @planejador/api test && pnpm --filter @planejador/web test",
+    "test:e2e": "pnpm --filter @planejador/web test:e2e",
     "test:ai": "node --test --experimental-strip-types \"packages/ai/test/**/*.test.ts\"",
     "test:ai:live": "node --test --experimental-strip-types \"packages/ai/test/**/*.live.test.ts\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && pnpm --filter @planejador/api typecheck && pnpm --filter @planejador/web typecheck"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
     "typescript": "^7.0.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "@fastify/middie": "9.3.3",
+      "fastify": "5.11.3"
+    }
   }
 }
