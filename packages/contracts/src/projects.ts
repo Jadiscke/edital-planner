@@ -20,6 +20,33 @@ export const updateProjectSchema = createProjectSchema.partial().refine(
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 
+export const createMaterialSchema = z.object({
+  title: z.string().trim().min(2, "Informe o título do material.").max(180),
+  edition: z.string().trim().min(1, "Informe a edição.").max(80),
+});
+export const materialIndexItemSchema = z.object({
+  id: z.string().trim().min(1).max(80), parentId: z.string().trim().min(1).max(80).nullable(),
+  title: z.string().trim().min(1, "Informe o texto do item.").max(300),
+  startPage: z.number().int().positive(), endPage: z.number().int().positive(), sourcePage: z.number().int().positive(),
+});
+export const importMaterialIndexSchema = z.object({
+  sourceKind: z.enum(["manual", "pdf", "image"]),
+  sourceFilename: z.string().trim().min(1).max(180).optional(),
+  mimeType: z.enum(["application/pdf", "image/png", "image/jpeg", "image/webp"]).optional(),
+  base64: z.string().max(8_000_000).optional(),
+  pageOffset: z.number().int().min(-10_000).max(10_000),
+  items: z.array(materialIndexItemSchema).max(500).optional(),
+}).superRefine((value, context) => {
+  if (value.sourceKind === "manual" && !value.items?.length) context.addIssue({ code: "custom", path: ["items"], message: "Digite ao menos um item." });
+  if (value.sourceKind !== "manual" && (!value.base64 || !value.mimeType || !value.sourceFilename)) context.addIssue({ code: "custom", path: ["base64"], message: "Envie somente as páginas do índice." });
+});
+export const reviseMaterialIndexSchema = z.object({
+  pageOffset: z.number().int().min(-10_000).max(10_000), items: z.array(materialIndexItemSchema).min(1).max(500),
+});
+
+export type CreateMaterialInput = z.infer<typeof createMaterialSchema>;
+export type ImportMaterialIndexInput = z.infer<typeof importMaterialIndexSchema>;
+
 export function toFieldErrors(error: ZodError): Record<string, string> {
   const fields: Record<string, string> = {};
   for (const issue of error.issues) {
@@ -224,6 +251,36 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
             "404": response("Projeto ausente ou pertencente a outro tenant", errorSchema),
             "422": response("PDF inválido, protegido ou acima do limite", errorSchema),
           },
+        },
+      },
+      "/projects/{projectId}/materials": {
+        post: {
+          operationId: "createMaterial", summary: "Cadastrar material e edição", security: protectedSecurity,
+          parameters: [{ name: "projectId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, idempotencyHeader],
+          requestBody: { required: true, content: json({ type: "object", additionalProperties: false, required: ["title", "edition"], properties: { title: { type: "string", minLength: 2, maxLength: 180 }, edition: { type: "string", minLength: 1, maxLength: 80 } } }) },
+          responses: { "201": response("Material cadastrado"), "400": response("Dados inválidos", errorSchema), "404": response("Projeto ausente", errorSchema) },
+        },
+      },
+      "/materials/{materialId}/index-versions": {
+        post: {
+          operationId: "importMaterialIndex", summary: "Importar páginas ou digitar índice para revisão", security: protectedSecurity,
+          parameters: [{ name: "materialId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+          requestBody: { required: true, content: json({ type: "object", required: ["sourceKind", "pageOffset"], properties: { sourceKind: { type: "string", enum: ["manual", "pdf", "image"] }, sourceFilename: { type: "string" }, mimeType: { type: "string", enum: ["application/pdf", "image/png", "image/jpeg", "image/webp"] }, base64: { type: "string", maxLength: 8_000_000 }, pageOffset: { type: "integer" }, items: { type: "array", maxItems: 500 } } }) },
+          responses: { "201": response("Versão validada para revisão"), "400": response("Entrada inválida", errorSchema), "422": response("Arquivo ou saída inválida recuperável", errorSchema) },
+        },
+      },
+      "/materials/{materialId}/index-versions/{versionId}/revisions": {
+        post: {
+          operationId: "reviseMaterialIndex", summary: "Salvar correções como nova versão", security: protectedSecurity,
+          parameters: [{ name: "materialId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { name: "versionId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+          responses: { "201": response("Nova versão de revisão"), "400": response("Correções inválidas", errorSchema), "404": response("Material ou versão ausente", errorSchema) },
+        },
+      },
+      "/materials/{materialId}/index-versions/{versionId}/approval": {
+        post: {
+          operationId: "approveMaterialIndex", summary: "Aprovar explicitamente uma versão válida", security: protectedSecurity,
+          parameters: [{ name: "materialId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { name: "versionId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+          responses: { "201": response("Versão aprovada"), "404": response("Material ou versão ausente", errorSchema), "422": response("Versão inválida não promovida", errorSchema) },
         },
       },
       "/processing-jobs/{jobId}": {

@@ -1,6 +1,7 @@
 import { EditalSpine } from "./EditalSpine.tsx";
 import { EditalUpload } from "./EditalUpload.tsx";
 import { ProjectComposer } from "./ProjectComposer.tsx";
+import { MaterialIndexWorkspace } from "./MaterialIndexWorkspace.tsx";
 
 export function AccountLogin({ onLogin, error, status }: { onLogin: () => void; error: string; status: string }) {
   return (
@@ -47,6 +48,7 @@ export function ProjectWorkspace() {
         </div>
         <EditalUpload />
       </aside>
+      <MaterialIndexWorkspace />
     </main>
   );
 }

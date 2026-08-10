@@ -32,6 +32,9 @@ export interface AcceptedDocument {
   documentVersion: { id: string; projectId: string; versionNumber: number; filename: string; sha256: string; sizeBytes: number; createdAt: string };
   job: ProcessingJob;
 }
+export interface MaterialIndexItem { id: string; parentId: string | null; title: string; startPage: number; endPage: number; sourcePage: number }
+export interface MaterialIndexVersion { id: string; materialId: string; versionNumber: number; sourceKind: "manual" | "pdf" | "image"; sourceFilename?: string; pageOffset: number; items: MaterialIndexItem[]; status: "invalid" | "in_review" | "approved"; validationIssues: string[]; createdAt: string; approvedAt?: string }
+export interface Material { id: string; projectId: string; title: string; edition: string; versions: MaterialIndexVersion[]; createdAt: string; updatedAt: string }
 
 interface ApiRequest {
   url: string;
@@ -62,7 +65,7 @@ const apiBaseQuery: BaseQueryFn<string | ApiRequest> = async (request, api) => {
 
 export const projectsApi = createApi({
   reducerPath: "projectsApi",
-  tagTypes: ["Project"],
+  tagTypes: ["Project", "Material"],
   baseQuery: apiBaseQuery,
   endpoints: (build) => ({
     listProjects: build.query<Project[], void>({
@@ -102,10 +105,22 @@ export const projectsApi = createApi({
     getProcessingJob: build.query<ProcessingJob, string>({
       query: (jobId) => `/processing-jobs/${jobId}`,
     }),
+    createMaterial: build.mutation<Material, { projectId: string; title: string; edition: string; idempotencyKey: string }>({
+      query: ({ projectId, title, edition, idempotencyKey }) => ({ url: `/projects/${projectId}/materials`, method: "POST", body: { title, edition }, headers: { "Idempotency-Key": idempotencyKey } }),
+    }),
+    importMaterialIndex: build.mutation<MaterialIndexVersion, { materialId: string; body: Record<string, unknown> }>({
+      query: ({ materialId, body }) => ({ url: `/materials/${materialId}/index-versions`, method: "POST", body }),
+    }),
+    reviseMaterialIndex: build.mutation<MaterialIndexVersion, { materialId: string; versionId: string; pageOffset: number; items: MaterialIndexItem[] }>({
+      query: ({ materialId, versionId, ...body }) => ({ url: `/materials/${materialId}/index-versions/${versionId}/revisions`, method: "POST", body }),
+    }),
+    approveMaterialIndex: build.mutation<MaterialIndexVersion, { materialId: string; versionId: string }>({
+      query: ({ materialId, versionId }) => ({ url: `/materials/${materialId}/index-versions/${versionId}/approval`, method: "POST" }),
+    }),
   }),
 });
 
-export const { useCreateProjectMutation, useGetProcessingJobQuery, useListProjectsQuery, useUploadEditalMutation } = projectsApi;
+export const { useApproveMaterialIndexMutation, useCreateMaterialMutation, useCreateProjectMutation, useGetProcessingJobQuery, useImportMaterialIndexMutation, useListProjectsQuery, useReviseMaterialIndexMutation, useUploadEditalMutation } = projectsApi;
 
 export function createAppStore() {
   return configureStore({

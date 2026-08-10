@@ -1,5 +1,6 @@
 import { InMemoryProjectRepository } from "../../../packages/domain/src/projects.ts";
 import { InMemoryDocumentPipeline, type DocumentPipeline } from "../../../packages/domain/src/documents.ts";
+import { InMemoryMaterialRepository } from "../../../packages/domain/src/materials.ts";
 import { createApi } from "./app.ts";
 import { InMemoryMembershipResolver } from "./authorization.ts";
 import { InMemorySessionStore } from "./sessions.ts";
@@ -23,10 +24,12 @@ class CompletingTestDocumentPipeline extends InMemoryDocumentPipeline {
   }
 }
 const documents = new CompletingTestDocumentPipeline();
+const materials = new InMemoryMaterialRepository();
 const qaFlows = new Map<string, string>();
 const api = await createApi({
   projects,
   documents,
+  materials,
   sessions: new InMemorySessionStore(),
   memberships,
   verifyAccessToken: async () => { throw new Error("Bearer tokens are disabled in E2E"); },
@@ -57,7 +60,7 @@ const api = await createApi({
   secureCookies: false,
   trustedProxyIps: [],
   testIdentity: { issuer: "https://e2e.identity.test", subjectId: "candidate-e2e", tenantId: "tenant-e2e" },
-  resetTestState: () => { projects.reset(); documents.reset(); qaFlows.clear(); },
+  resetTestState: () => { projects.reset(); documents.reset(); materials.reset(); qaFlows.clear(); },
   openIdConnectUrl: "https://e2e.identity.test/.well-known/openid-configuration",
 });
 await api.listen({ host: "127.0.0.1", port: 3001 });

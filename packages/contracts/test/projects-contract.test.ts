@@ -36,3 +36,11 @@ test("the OpenAPI contract exposes binary edital upload and observable processin
   assert.equal(statusSchema.$ref, "#/components/schemas/ProcessingJob");
   assert.ok(status.responses["404"]);
 });
+
+test("the OpenAPI contract exposes material index review and explicit approval", () => {
+  const document = projectApiDocument;
+  assert.equal(document.paths["/projects/{projectId}/materials"].post.operationId, "createMaterial");
+  assert.equal(document.paths["/materials/{materialId}/index-versions"].post.operationId, "importMaterialIndex");
+  assert.equal(document.paths["/materials/{materialId}/index-versions/{versionId}/revisions"].post.operationId, "reviseMaterialIndex");
+  assert.equal(document.paths["/materials/{materialId}/index-versions/{versionId}/approval"].post.operationId, "approveMaterialIndex");
+});
