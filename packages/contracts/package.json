@@ -1,0 +1,11 @@
+{
+  "name": "@planejador/contracts",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/projects.ts"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  }
+}
