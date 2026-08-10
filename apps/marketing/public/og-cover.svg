@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Planejador de Editais</title>
+  <desc id="desc">Um edital se transforma em uma trilha clara de estudo.</desc>
+  <rect width="1200" height="630" fill="#F6F8FC"/>
+  <path d="M170 92v446" stroke="#102A43" stroke-width="12"/>
+  <circle cx="170" cy="160" r="24" fill="#2563EB"/>
+  <circle cx="170" cy="315" r="24" fill="#0F766E"/>
+  <circle cx="170" cy="470" r="24" fill="#F4B942"/>
+  <text x="245" y="270" fill="#102A43" font-family="Arial, sans-serif" font-size="76" font-weight="700">Do edital ao</text>
+  <text x="245" y="365" fill="#102A43" font-family="Arial, sans-serif" font-size="76" font-weight="700">estudo de hoje.</text>
+  <text x="250" y="438" fill="#0F766E" font-family="Arial, sans-serif" font-size="28">Planejador de Editais</text>
+</svg>

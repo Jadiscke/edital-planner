@@ -11,10 +11,16 @@
     "test": "node --test --experimental-strip-types \"packages/ai/test/**/*.test.ts\" \"tests/**/*.test.mjs\"",
     "test:ai": "node --test --experimental-strip-types \"packages/ai/test/**/*.test.ts\"",
     "test:ai:live": "node --test --experimental-strip-types \"packages/ai/test/**/*.live.test.ts\"",
+    "test:marketing": "pnpm --filter @planejador/marketing test",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
     "typescript": "^7.0.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "sharp": "^0.35.0"
+    }
   }
 }

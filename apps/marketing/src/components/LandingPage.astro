@@ -1,0 +1,110 @@
+---
+import BrandMark from "./BrandMark.astro";
+
+interface Props { signupUrl: string }
+const { signupUrl } = Astro.props;
+---
+
+<div class="landing">
+  <header class="site-header a-header">
+    <a class="brand" href="#inicio" aria-label="Planejador de Editais — início">
+      <BrandMark />
+      <span class="brand-name">Planejador<br />de Editais</span>
+    </a>
+    <nav aria-label="Navegação principal">
+      <a href="#beneficios">Benefícios</a>
+      <a href="#como-funciona">Como funciona</a>
+      <a href="#privacidade">Privacidade</a>
+      <a href="#planos">Planos</a>
+    </nav>
+    <a class="button button-small" href={signupUrl}>Criar meu projeto</a>
+  </header>
+
+  <main id="inicio" tabindex="-1">
+    <section class="a-hero" aria-labelledby="a-title">
+      <div class="a-hero-copy">
+        <p class="eyebrow">Seu edital já tem uma ordem. Sua semana merece uma também.</p>
+        <h1 id="a-title">Do edital aberto ao estudo de hoje.</h1>
+        <p class="lead">Pare de carregar o edital inteiro na cabeça. Transforme matérias, tópicos e páginas em uma trilha semanal que você consegue revisar, cumprir e recalcular.</p>
+        <div class="hero-actions">
+          <a class="button" href={signupUrl}>Organizar meu primeiro edital</a>
+          <a class="text-link" href="#como-funciona">Ver o caminho completo <span aria-hidden="true">↓</span></a>
+        </div>
+        <p class="quiet-note"><span aria-hidden="true">✓</span> Comece pelo edital que está tirando seu sono. A semana vem depois.</p>
+      </div>
+
+      <aside class="edital-spine spine-paper" aria-label="Exemplo do caminho entre o edital e uma tarefa de estudo">
+        <p class="spine-kicker">Edital SEFAZ · Auditor</p>
+        <ol>
+          <li><span>Fonte</span><strong>Edital em PDF</strong><small>Versão preservada</small></li>
+          <li><span>Estrutura</span><strong>Direito Tributário</strong><small>14 tópicos revisáveis</small></li>
+          <li><span>Evidência</span><strong>Crédito tributário</strong><small>Aula 06 · páginas 12–29</small></li>
+          <li class="is-today"><span>Hoje · 45 min</span><strong>Suspensão da exigibilidade</strong><small>Teoria → revisão → 15 questões</small></li>
+        </ol>
+        <details class="spine-rationale">
+          <summary>Por que esta tarefa agora?</summary>
+          <p>Ela vem depois do conceito de crédito tributário, cabe nos 45 minutos de hoje e libera a próxima revisão.</p>
+        </details>
+      </aside>
+    </section>
+
+    <section class="a-benefits" id="beneficios" aria-labelledby="a-benefits-title">
+      <div class="section-heading">
+        <p class="eyebrow">Menos planilha órfã. Mais evidência.</p>
+        <h2 id="a-benefits-title">Saiba o que estudar—e por que isso entrou na sua semana.</h2>
+      </div>
+      <div class="benefit-ledger">
+        <article><span>01</span><h3>Edital verticalizado</h3><p>Revise a árvore de matérias, tópicos e subtópicos antes de planejar.</p></article>
+        <article><span>02</span><h3>Material conectado</h3><p>Ligue cada item às páginas que realmente cobrem o conteúdo.</p></article>
+        <article><span>03</span><h3>Semana possível</h3><p>Distribua teoria, revisão e exercícios dentro das horas que você tem.</p></article>
+        <article><span>04</span><h3>Histórico intacto</h3><p>Recalcule o futuro sem apagar sessões ou decisões já concluídas.</p></article>
+      </div>
+    </section>
+
+    <section class="a-process" id="como-funciona" aria-labelledby="a-process-title">
+      <div class="section-heading compact">
+        <p class="eyebrow">Da publicação ao marca-texto</p>
+        <h2 id="a-process-title">Seu plano nasce em 4 passagens.</h2>
+      </div>
+      <ol class="process-stations">
+        <li><b>Envie</b><span>o edital do concurso.</span></li>
+        <li><b>Revise</b><span>a estrutura extraída.</span></li>
+        <li><b>Associe</b><span>os índices dos materiais.</span></li>
+        <li><b>Estude</b><span>a próxima tarefa, com contexto.</span></li>
+      </ol>
+    </section>
+
+    <section class="a-privacy" id="privacidade" aria-labelledby="a-privacy-title">
+      <div class="privacy-statement">
+        <p class="eyebrow">Privacidade por padrão</p>
+        <h2 id="a-privacy-title">Seus documentos não viram uma caixa-preta.</h2>
+        <p>Você revisa sugestões antes que elas orientem o plano. Fontes e versões permanecem rastreáveis, e os controles de acesso ficam no backend—nunca a cargo da IA.</p>
+      </div>
+      <ul class="privacy-checks" aria-label="Compromissos de privacidade">
+        <li><span aria-hidden="true">●</span> Coleta mínima para cada função</li>
+        <li><span aria-hidden="true">●</span> Solicitação de exportação e exclusão</li>
+        <li><span aria-hidden="true">●</span> Histórico de revisão preservado</li>
+      </ul>
+    </section>
+
+    <section class="a-plans" id="planos" aria-labelledby="a-plans-title">
+      <div class="section-heading compact">
+        <p class="eyebrow">Catálogo em definição</p>
+        <h2 id="a-plans-title">Primeiro, veja o que a rotina precisa resolver.</h2>
+      </div>
+      <div class="plan-row">
+        <article><p>Base da rotina</p><h3>Organizar</h3><span>Verticalize o edital e conecte tópicos às páginas dos seus materiais.</span></article>
+        <article class="featured"><p>Semana em movimento</p><h3>Executar</h3><span>Transforme teoria, revisão e questões em tarefas que respeitam seu tempo.</span></article>
+        <article><p>Visão de progresso</p><h3>Acompanhar</h3><span>Leia cobertura, histórico e previsão sem perder decisões já concluídas.</span></article>
+      </div>
+      <a class="button" href={signupUrl}>Criar meu projeto</a>
+      <p class="plan-disclosure">Nomes, preços, limites, período de teste e condições de renovação ainda serão definidos. O catálogo vigente será apresentado antes de qualquer contratação.</p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <a class="brand" href="#inicio"><BrandMark /><span class="brand-name">Planejador de Editais</span></a>
+    <p>Para o edital caber na semana—e a semana continuar cabendo na vida.</p>
+    <a href="#privacidade">Privacidade</a>
+  </footer>
+</div>
