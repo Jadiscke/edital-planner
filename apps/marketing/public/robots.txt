@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://planejadordeeditais.com.br/sitemap-index.xml

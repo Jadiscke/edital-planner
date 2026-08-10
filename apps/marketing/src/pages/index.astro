@@ -1,0 +1,41 @@
+---
+import LandingPage from "../components/LandingPage.astro";
+import { getPublicSignupUrl } from "../config";
+import "../styles/global.css";
+
+const siteUrl = Astro.site ?? new URL("https://planejadordeeditais.com.br");
+const canonical = new URL(Astro.url.pathname, siteUrl);
+const signupUrl = getPublicSignupUrl();
+const title = "Planejador de Editais | Do edital ao estudo de hoje";
+const description =
+  "Transforme o edital do seu concurso e o índice dos seus materiais em uma trilha semanal rastreável, revisável e ajustada ao seu tempo.";
+---
+
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#F6F8FC" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,500;6..72,600&amp;display=swap" />
+    <link rel="canonical" href={canonical} />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="pt_BR" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={new URL("/og-cover.svg", siteUrl)} />
+  </head>
+  <body>
+    <a class="skip-link" href="#inicio">Pular para o conteúdo</a>
+    <div id="page-content">
+      <LandingPage signupUrl={signupUrl} />
+    </div>
+  </body>
+</html>
