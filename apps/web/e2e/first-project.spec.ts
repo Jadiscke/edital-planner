@@ -7,9 +7,16 @@ async function establishSession(page: import("@playwright/test").Page) {
   expect(response.status()).toBe(204);
 }
 
+test("QA user can enter through the visible login action", async ({ page }) => {
+  await page.goto("/app/");
+  await page.getByRole("button", { name: "Entrar ou Criar Conta" }).click();
+
+  await expect(page.getByText("Sessão Protegida")).toBeVisible();
+});
+
 test("candidate creates a first project and reload retrieves it", async ({ page }) => {
   await establishSession(page);
-  await page.goto("/");
+  await page.goto("/app/");
   await page.getByLabel("Concurso").fill("TRF 4ª Região");
   await page.getByLabel("Cargo").fill("Analista Judiciário");
   await page.getByLabel("Área").fill("Judiciária");
@@ -34,7 +41,7 @@ test("the final flow fits desktop and mobile without prototype behavior or conso
   });
 
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto("/?variant=C");
+  await page.goto("/app/?variant=C");
   const staleUrl = page.url();
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowLeft");

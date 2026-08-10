@@ -108,13 +108,14 @@ The repository currently provides the foundations for the larger product:
 | --- | --- |
 | Public experience | Static Astro marketing site with an accessible editorial design |
 | Product application | React/Vite account and first-project experience |
-| API | NestJS/Fastify project operations, OpenAPI contract, PostgreSQL persistence, and tenant authorization |
+| API | NestJS/Fastify project and edital operations, OpenAPI contract, PostgreSQL persistence, and tenant authorization |
 | Authentication | Standards-based OIDC backend-for-frontend flow with server-side, revocable sessions |
-| Domain | Project rules, shared Zod contracts, idempotency, and tenant isolation |
+| Documents | Private S3-compatible upload, immutable versions, Redis/BullMQ jobs, recoverable worker states, and status UI |
+| Domain | Project and document rules, shared Zod contracts, idempotency, and tenant isolation |
 | AI | Structured edital verticalization, material-index extraction, and mapping suggestions through OpenRouter |
 | Validation | Unit, contract, HTTP, UI, integration, journey, and optional live-provider tests |
 
-The document-processing UI, full review workflow, study-plan generator, task execution, analytics, benchmarking, billing, and privacy portals remain roadmap work unless represented by newer code or decision records.
+Document extraction/verticalization after the upload worker, the full review workflow, study-plan generator, task execution, analytics, benchmarking, billing, and privacy portals remain roadmap work unless represented by newer code or decision records.
 
 ## Repository structure
 
@@ -162,6 +163,8 @@ AI processing follows separate extraction, normalization, and matching stages. M
 - Node.js 24.18.0 or newer in the Node 24 LTS line
 - pnpm 9.1.1
 - PostgreSQL 17.10+ or 18.4+
+- Redis on a currently supported, patched release
+- private S3-compatible object storage
 - an OpenID Connect provider for authenticated API development
 - an OpenRouter API key for live AI operations
 
@@ -176,6 +179,8 @@ Update `.env` for your local services. At minimum, API development requires:
 
 - `DATABASE_URL`: runtime PostgreSQL role with DML permissions only;
 - `DDL_DATABASE_URL`: separate PostgreSQL role allowed to run migrations;
+- `REDIS_URL`: dedicated BullMQ Redis connection (`rediss://` is required in production);
+- `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and `S3_DOCUMENT_BUCKET`;
 - `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_CLIENT_ID`, and `OIDC_CALLBACK_URL`;
 - the remaining OIDC security settings documented in `.env.example`.
 
@@ -189,23 +194,25 @@ pnpm --filter @planejador/api migrate
 
 ### Run the applications
 
-Start the API and product application in separate terminals:
+Start the API, document worker, product application, and marketing site in separate terminals:
 
 ```bash
 pnpm dev:api
 ```
 
 ```bash
-pnpm dev:web
+pnpm --filter @planejador/api dev:worker
 ```
 
-The API listens on `http://127.0.0.1:3001` by default. During development, the web application uses that address unless `VITE_API_URL` is configured.
-
-Run the marketing site separately:
+```bash
+pnpm dev:web
+```
 
 ```bash
 pnpm --filter @planejador/marketing dev
 ```
+
+The API listens on `http://127.0.0.1:3001` by default. The marketing server exposes the public landing page at `http://127.0.0.1:4173/` and proxies the product application under `http://127.0.0.1:4173/app/`; all application routes and authentication redirects must remain inside `/app/*`. During development, the web application uses the local API address unless `VITE_API_URL` is configured.
 
 ## AI workflows
 
@@ -237,10 +244,10 @@ pnpm test:marketing   # Marketing static and journey tests
 pnpm test:e2e         # Product Playwright tests
 ```
 
-The PostgreSQL integration test uses Testcontainers and requires Docker:
+The PostgreSQL, Redis/BullMQ, and S3-compatible MinIO integration tests use Testcontainers and require Docker. The default API test command runs them whenever Docker is available and requires Docker in CI:
 
 ```bash
-pnpm --filter @planejador/api test:postgres
+pnpm --filter @planejador/api test
 ```
 
 Live OpenRouter tests are opt-in. One checks the real HTTP authentication contract using an intentionally invalid credential at no model cost; the paid smoke test requires a valid key. Read the AI package README before enabling either one.
@@ -263,6 +270,7 @@ Open product decisions—including default reading speed, review intervals, task
 - [`docs/authentication.md`](docs/authentication.md) — OIDC and session architecture
 - [`docs/adr/0001-stack-tecnologica-inicial.md`](docs/adr/0001-stack-tecnologica-inicial.md) — initial technology choices
 - [`docs/adr/0002-openrouter-como-gateway-de-ia.md`](docs/adr/0002-openrouter-como-gateway-de-ia.md) — OpenRouter gateway decision
+- [`docs/adr/0003-landing-na-raiz-e-aplicacao-em-app.md`](docs/adr/0003-landing-na-raiz-e-aplicacao-em-app.md) — public landing and `/app/*` routing boundary
 - [`docs/security/technology-vulnerability-review.md`](docs/security/technology-vulnerability-review.md) — security review and supported-version floors
 - [`docs/system-design/index.html`](docs/system-design/index.html) — navigable system-design overview
 

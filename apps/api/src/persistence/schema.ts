@@ -1,4 +1,4 @@
-import { index, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { bigint, index, integer, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 export const localIdentitiesTable = pgTable("local_identities", {
   id: uuid("id").primaryKey(), issuer: text("issuer").notNull(), subjectId: text("subject_id").notNull(),
@@ -77,3 +77,40 @@ export const oidcAuthorizationFlowsTable = pgTable("oidc_authorization_flows", {
   clientKey: text("client_key").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 }, (table) => [index("oidc_authorization_flows_expiry_idx").on(table.expiresAt), index("oidc_authorization_flows_client_idx").on(table.clientKey)]);
+
+export const documentVersionsTable = pgTable("document_versions", {
+  id: uuid("id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  projectId: uuid("project_id").notNull().references(() => projectsTable.id, { onDelete: "restrict" }),
+  versionNumber: integer("version_number").notNull(),
+  filename: text("filename").notNull(),
+  objectKey: text("object_key").notNull().unique(),
+  sha256: text("sha256").notNull(),
+  sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("document_versions_project_version_idx").on(table.projectId, table.versionNumber),
+  index("document_versions_tenant_project_idx").on(table.tenantId, table.projectId),
+]);
+
+export const processingJobsTable = pgTable("processing_jobs", {
+  id: uuid("id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  projectId: uuid("project_id").notNull().references(() => projectsTable.id, { onDelete: "restrict" }),
+  documentVersionId: uuid("document_version_id").notNull().references(() => documentVersionsTable.id, { onDelete: "restrict" }),
+  status: text("status").notNull().default("pending"),
+  correlationId: uuid("correlation_id").notNull(),
+  errorCode: text("error_code"),
+  attempts: integer("attempts").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("processing_jobs_tenant_created_idx").on(table.tenantId, table.createdAt)]);
+
+export const documentUploadIdempotencyTable = pgTable("document_upload_idempotency", {
+  tenantId: text("tenant_id").notNull(),
+  projectId: uuid("project_id").notNull().references(() => projectsTable.id, { onDelete: "restrict" }),
+  idempotencyKey: text("idempotency_key").notNull(),
+  documentVersionId: uuid("document_version_id").notNull().references(() => documentVersionsTable.id, { onDelete: "restrict" }),
+  processingJobId: uuid("processing_job_id").notNull().references(() => processingJobsTable.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.idempotencyKey] })]);

@@ -85,5 +85,6 @@ Decisão de aceitar, corrigir ou rejeitar uma sugestão, preservando autor, mome
 
 - `docs/adr/0001-stack-tecnologica-inicial.md`
 - `docs/adr/0002-openrouter-como-gateway-de-ia.md`
+- `docs/adr/0003-landing-na-raiz-e-aplicacao-em-app.md`
 - `docs/security/technology-vulnerability-review.md`
 - `docs/system-design/index.html`

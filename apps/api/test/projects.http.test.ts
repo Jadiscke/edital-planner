@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { InMemoryProjectRepository } from "../../../packages/domain/src/projects.ts";
+import { InMemoryDocumentPipeline } from "../../../packages/domain/src/documents.ts";
 import { createApi, type AccessIdentity, type VerifiedTokenIdentity } from "../src/app.ts";
 import { InMemoryMembershipResolver } from "../src/authorization.ts";
 import { InMemorySessionStore, SESSION_COOKIE } from "../src/sessions.ts";
@@ -20,6 +21,7 @@ function memberships() {
 function testApi(projects = new InMemoryProjectRepository(), sessions = new InMemorySessionStore()) {
   return createApi({
     projects,
+    documents: new InMemoryDocumentPipeline(),
     sessions,
     memberships: memberships(),
     allowedOrigins: ["https://app.example.test"],
@@ -142,6 +144,7 @@ describe("projects HTTP contract", () => {
     const sessions = new InMemorySessionStore();
     const app = await createApi({
       projects: new InMemoryProjectRepository(),
+      documents: new InMemoryDocumentPipeline(),
       sessions,
       memberships: memberships(),
       allowedOrigins: ["https://app.example.test"],
@@ -151,12 +154,13 @@ describe("projects HTTP contract", () => {
       verifyAccessToken: async (token) => verified[token]!,
       bff: {
         begin: async () => ({ authorizationUrl: "https://issuer.test/authorize", flowId: "opaque-flow" }),
-        complete: async () => ({ identity: verified["token-a"]!, returnTo: "https://app.example.test/?variant=A" }),
+        complete: async () => ({ identity: verified["token-a"]!, returnTo: "https://app.example.test/app/?variant=A" }),
       },
     });
     activeApps.push(app);
 
-    const login = await app.inject({ method: "GET", url: "/auth/login?returnTo=https%3A%2F%2Fapp.example.test%2F" });
+    const landingReturn = await app.inject({ method: "GET", url: "/auth/login?returnTo=https%3A%2F%2Fapp.example.test%2F" });
+    const login = await app.inject({ method: "GET", url: "/auth/login?returnTo=https%3A%2F%2Fapp.example.test%2Fapp%2F" });
     const flowCookie = login.headers["set-cookie"] as string;
     const callback = await app.inject({
       method: "GET",
@@ -165,6 +169,7 @@ describe("projects HTTP contract", () => {
     });
     const cookies = callback.headers["set-cookie"] as string[];
 
+    expect(landingReturn.statusCode).toBe(400);
     expect(login.statusCode).toBe(302);
     expect(callback.statusCode).toBe(302);
     expect(cookies[0]).toContain("HttpOnly");
@@ -178,7 +183,7 @@ describe("projects HTTP contract", () => {
 
   it("denies a validly signed tenant claim without a matching local membership", async () => {
     const resolver = memberships();
-    const app = await createApi({ projects: new InMemoryProjectRepository(), sessions: new InMemorySessionStore(), memberships: resolver,
+    const app = await createApi({ projects: new InMemoryProjectRepository(), documents: new InMemoryDocumentPipeline(), sessions: new InMemorySessionStore(), memberships: resolver,
       allowedOrigins: ["https://app.example.test"], secureCookies: true,
       trustedProxyIps: [],
       openIdConnectUrl: "https://issuer.test/.well-known/openid-configuration",
@@ -192,7 +197,7 @@ describe("projects HTTP contract", () => {
   it("revalidates and revokes a cookie session as soon as membership becomes inactive", async () => {
     const resolver = memberships();
     const sessions = new InMemorySessionStore();
-    const app = await createApi({ projects: new InMemoryProjectRepository(), sessions, memberships: resolver,
+    const app = await createApi({ projects: new InMemoryProjectRepository(), documents: new InMemoryDocumentPipeline(), sessions, memberships: resolver,
       allowedOrigins: ["https://app.example.test"], secureCookies: true, trustedProxyIps: [],
       openIdConnectUrl: "https://issuer.test/.well-known/openid-configuration", verifyAccessToken: async () => verified["token-a"]!,
     });
@@ -205,7 +210,7 @@ describe("projects HTTP contract", () => {
   });
 
   it("rate limits login attempts per resolved client with 429", async () => {
-    const app = await createApi({ projects: new InMemoryProjectRepository(), sessions: new InMemorySessionStore(), memberships: memberships(),
+    const app = await createApi({ projects: new InMemoryProjectRepository(), documents: new InMemoryDocumentPipeline(), sessions: new InMemorySessionStore(), memberships: memberships(),
       allowedOrigins: ["https://app.example.test"], secureCookies: true, trustedProxyIps: [],
       openIdConnectUrl: "https://issuer.test/.well-known/openid-configuration", verifyAccessToken: async () => verified["token-a"]!,
       bff: { begin: async () => ({ authorizationUrl: "https://issuer.test/authorize", flowId: "flow" }), complete: async () => ({ identity: verified["token-a"]!, returnTo: "https://app.example.test" }) },
