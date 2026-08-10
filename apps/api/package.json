@@ -19,6 +19,7 @@
     "@nestjs/platform-fastify": "11.1.29",
     "@planejador/contracts": "workspace:*",
     "@planejador/domain": "workspace:*",
+    "@planejador/ai": "workspace:*",
     "bullmq": "6.0.10",
     "drizzle-orm": "0.45.2",
     "fastify": "5.11.3",

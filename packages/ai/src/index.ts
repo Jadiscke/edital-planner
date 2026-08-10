@@ -6,6 +6,7 @@ export { createAiService, type AiService } from "./service.ts";
 export {
   OpenRouterHttpError,
   OpenRouterResponseError,
+  OpenRouterStructuredOutputError,
   type AiTaskAudit,
   type AiTaskResult,
   type AiUsage,

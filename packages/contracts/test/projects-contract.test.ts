@@ -35,6 +35,11 @@ test("the OpenAPI contract exposes binary edital upload and observable processin
   const statusSchema = status.responses["200"].content?.["application/json"].schema as { $ref?: string };
   assert.equal(statusSchema.$ref, "#/components/schemas/ProcessingJob");
   assert.ok(status.responses["404"]);
+  assert.ok(projectApiDocument.components.schemas.ProcessingJob.properties.status.enum.includes("failed_invalid_output"));
+  const verticalization = projectApiDocument.paths["/document-versions/{documentVersionId}/verticalization"].get;
+  const verticalizationSchema = verticalization.responses["200"].content?.["application/json"].schema as { $ref?: string };
+  assert.equal(verticalizationSchema.$ref, "#/components/schemas/VerticalizationTree");
+  assert.ok(verticalization.responses["404"]);
 });
 
 test("the OpenAPI contract separates archived projects and exposes lifecycle commands", () => {

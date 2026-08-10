@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { IdentityContext } from "./projects.ts";
 
-export type ProcessingJobStatus = "pending" | "processing" | "completed" | "failed_recoverable";
+export type ProcessingJobStatus = "pending" | "processing" | "completed" | "failed_recoverable" | "failed_invalid_output";
 
 export interface DocumentVersion {
   id: string;
@@ -136,12 +136,16 @@ export class InMemoryDocumentPipeline implements DocumentPipeline {
     this.transition(jobId, "failed_recoverable", errorCode);
   }
 
+  async rejectInvalidOutput(jobId: string): Promise<void> {
+    this.transition(jobId, "failed_invalid_output", "verticalization_schema_invalid");
+  }
+
   private transition(jobId: string, status: ProcessingJobStatus, errorCode?: string): void {
     const job = this.jobs.get(jobId);
     if (!job) throw new Error("ProcessingJob not found");
     const allowed =
       (job.status === "pending" && (status === "processing" || status === "failed_recoverable"))
-      || (job.status === "processing" && (status === "completed" || status === "failed_recoverable"));
+      || (job.status === "processing" && (status === "completed" || status === "failed_recoverable" || status === "failed_invalid_output"));
     if (!allowed) throw new Error(`Invalid ProcessingJob transition: ${job.status} -> ${status}`);
     this.jobs.set(jobId, {
       ...job,

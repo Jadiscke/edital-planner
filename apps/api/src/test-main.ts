@@ -3,6 +3,7 @@ import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { Pool } from "pg";
 import { InMemoryProjectRepository } from "../../../packages/domain/src/projects.ts";
 import { InMemoryDocumentPipeline, type DocumentPipeline } from "../../../packages/domain/src/documents.ts";
+import { InMemoryVerticalizationRepository } from "../../../packages/domain/src/verticalizations.ts";
 import { createApi } from "./app.ts";
 import { InMemoryMembershipResolver } from "./authorization.ts";
 import { InMemorySessionStore } from "./sessions.ts";
@@ -20,6 +21,7 @@ const postgres = process.env.PLAYWRIGHT_REAL_POSTGRES === "true"
 const pool = postgres ? new Pool({ connectionString: postgres.getConnectionUri(), max: 4 }) : undefined;
 if (pool) await runMigrations(pool);
 const projects = pool ? new PostgresProjectRepository(pool) : inMemoryProjects;
+const verticalizations = new InMemoryVerticalizationRepository();
 class CompletingTestDocumentPipeline extends InMemoryDocumentPipeline {
   override async upload(input: Parameters<DocumentPipeline["upload"]>[0]) {
     const accepted = await super.upload(input);
@@ -27,7 +29,20 @@ class CompletingTestDocumentPipeline extends InMemoryDocumentPipeline {
       setTimeout(() => {
         void this.start(accepted.job.id)
           .then(() => new Promise((resolve) => setTimeout(resolve, 75)))
-          .then(() => this.complete(accepted.job.id));
+          .then(async () => {
+            await verticalizations.save({
+              id: randomUUID(), tenantId: input.identity.tenantId, projectId: input.projectId,
+              documentVersionId: accepted.documentVersion.id, documentVersionNumber: accepted.documentVersion.versionNumber,
+              contest: { name: "DATAPREV", role: "Analista", area: "Tecnologia" }, warnings: [], createdAt: new Date().toISOString(),
+              subjects: [{ originalName: "CONHECIMENTOS GERAIS", normalizedName: "Conhecimentos Gerais", confidence: .98,
+                evidence: [{ page: 14, text: "CONHECIMENTOS GERAIS", boundingBox: null }],
+                topics: [{ originalName: "LÍNGUA PORTUGUESA", normalizedName: "Língua Portuguesa", confidence: .91,
+                  evidence: [{ page: 14, text: "LÍNGUA PORTUGUESA: compreensão e interpretação de textos.", boundingBox: null }], subtopics: [] }] }],
+              execution: { requestId: "e2e-fixture", promptVersion: "verticalize-edital@1.0.0", model: "fixture/schema-validator", provider: null,
+                promptTokens: 10, completionTokens: 20, totalTokens: 30, cost: null, latencyMs: 12 },
+            });
+            await this.complete(accepted.job.id);
+          });
       }, 25);
     }
     return accepted;
@@ -38,6 +53,7 @@ const qaFlows = new Map<string, string>();
 const api = await createApi({
   projects,
   documents,
+  verticalizations,
   sessions: new InMemorySessionStore(),
   memberships,
   verifyAccessToken: async () => { throw new Error("Bearer tokens are disabled in E2E"); },
@@ -75,6 +91,7 @@ const api = await createApi({
       inMemoryProjects.reset();
     }
     documents.reset();
+    verticalizations.reset();
     qaFlows.clear();
   },
   openIdConnectUrl: "https://e2e.identity.test/.well-known/openid-configuration",

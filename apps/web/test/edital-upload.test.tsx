@@ -72,12 +72,12 @@ describe("edital upload journey", () => {
     await user.upload(await screen.findByLabelText("Arquivo do edital em PDF"), file);
     await user.click(screen.getByRole("button", { name: "Enviar Edital" }));
 
-    expect(await screen.findByText("Edital pronto para verticalização.")).toBeVisible();
+    expect(await screen.findByText("Edital verticalizado com evidência.")).toBeVisible();
     expect(localStorage.getItem(`planejador:v1:processing-job:${project.id}`)).toBe(job.id);
     first.unmount();
     render(<App initialAuthenticated />);
 
-    expect(await screen.findByText("Edital pronto para verticalização.")).toBeVisible();
+    expect(await screen.findByText("Edital verticalizado com evidência.")).toBeVisible();
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith(`/processing-jobs/${job.id}`)).length).toBeGreaterThan(1));
   });
 

@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 
-import { useGetProcessingJobQuery, useListProjectsQuery, useUploadEditalMutation } from "../state.ts";
+import { useGetProcessingJobQuery, useGetVerticalizationQuery, useListProjectsQuery, useUploadEditalMutation } from "../state.ts";
+import type { VerticalizationTree } from "../state.ts";
 
 const STATUS_COPY = {
   pending: "Edital recebido. Aguardando processamento.",
   processing: "Verificando e organizando o edital…",
-  completed: "Edital pronto para verticalização.",
+  completed: "Edital verticalizado com evidência.",
   failed_recoverable: "Processamento interrompido. Tente enviar novamente.",
+  failed_invalid_output: "A extração não passou pela validação. Nenhuma árvore foi publicada.",
 } as const;
 const PROCESSING_JOB_STORAGE_PREFIX = "planejador:v1:processing-job";
 
@@ -26,7 +28,7 @@ function rememberJobId(projectId: string, jobId: string): void {
   }
 }
 
-export function EditalUpload() {
+export function EditalUpload({ onVerticalization }: { onVerticalization?: (tree: VerticalizationTree) => void }) {
   const { data: projects = [] } = useListProjectsQuery();
   const project = projects[0];
   const [file, setFile] = useState<File>();
@@ -43,6 +45,7 @@ export function EditalUpload() {
     refetchOnMountOrArgChange: true,
   });
   const statusRef = useRef<HTMLParagraphElement>(null);
+  const verticalization = useGetVerticalizationQuery(job.data?.documentVersionId ?? "", { skip: job.data?.status !== "completed" });
 
   useEffect(() => {
     const restoredJobId = project ? storedJobId(project.id) : "";
@@ -56,6 +59,9 @@ export function EditalUpload() {
     setShouldPoll(job.data.status === "pending" || job.data.status === "processing");
   }, [job.data]);
   useEffect(() => { if (isError) statusRef.current?.focus(); }, [isError, message]);
+  useEffect(() => {
+    if (verticalization.data?.subjects?.length) onVerticalization?.(verticalization.data);
+  }, [onVerticalization, verticalization.data]);
 
   const submit = async () => {
     if (!project) {
