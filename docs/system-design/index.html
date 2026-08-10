@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#eef4f7">
+    <meta
+      name="description"
+      content="System design navegável do Planejador de Editais: arquitetura, processamento, segurança e prontidão."
+    >
+    <title>Planejador de Editais — System Design</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230b2d4d'/%3E%3Ctext x='32' y='38' text-anchor='middle' font-family='sans-serif' font-size='20' font-weight='700' fill='white'%3EPE%3C/text%3E%3C/svg%3E"
+    >
+    <link rel="stylesheet" href="./styles.css">
+    <script defer src="./app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#conteudo-principal">Pular para o conteúdo</a>
+
+    <header class="topbar">
+      <a class="brand" href="#inicio" aria-label="Ir para o início">
+        <span class="brand-mark" aria-hidden="true">PE</span>
+        <span>Planejador de Editais</span>
+      </a>
+      <nav class="document-actions" aria-label="Ações do documento">
+        <button
+          class="icon-button"
+          id="theme-toggle"
+          type="button"
+          aria-label="Alternar tema"
+          aria-pressed="false"
+        >
+          <span aria-hidden="true">◐</span>
+          <span class="button-label">Tema</span>
+        </button>
+        <button
+          class="icon-button"
+          id="print-design"
+          type="button"
+          aria-label="Imprimir system design"
+        >
+          <span aria-hidden="true">↗</span>
+          <span class="button-label">Imprimir</span>
+        </button>
+      </nav>
+    </header>
+
+    <div class="shell">
+      <aside class="document-spine" aria-label="Índice do documento">
+        <div class="search-box">
+          <label for="section-search">Localizar seção</label>
+          <input
+            id="section-search"
+            name="section-search"
+            type="search"
+            placeholder="Ex.: segurança…"
+            autocomplete="off"
+          >
+          <p id="search-status" aria-live="polite"></p>
+        </div>
+        <nav class="section-nav" aria-label="Seções">
+          <a href="#inicio">Resumo</a>
+          <a href="#objetivos">Objetivos</a>
+          <a href="#arquitetura">Arquitetura</a>
+          <a href="#processamento">Processamento</a>
+          <a href="#contratos">Contratos</a>
+          <a href="#consistencia">Consistência</a>
+          <a href="#seguranca">Segurança</a>
+          <a href="#prontidao">Prontidão</a>
+          <a href="#alternativas">Alternativas</a>
+          <a href="#proximos-passos">Próximos passos</a>
+        </nav>
+        <div class="spine-meta">
+          <span>Status</span>
+          <strong>Proposto</strong>
+          <span>Atualizado</span>
+          <strong><time datetime="2026-07-23">23 jul 2026</time></strong>
+        </div>
+      </aside>
+
+      <main id="conteudo-principal">
+        <section class="hero document-section" id="inicio" data-search="resumo visão produto">
+          <div class="eyebrow">RFC de arquitetura · Versão 1.0</div>
+          <h1>Uma arquitetura rastreável para transformar editais em planos executáveis.</h1>
+          <p class="hero-lead">
+            O sistema separa experiência web, domínio transacional e processamento
+            assíncrono. Cada sugestão de IA preserva origem, confiança e uma decisão
+            humana possível.
+          </p>
+          <div class="decision-strip" aria-label="Decisões principais">
+            <article>
+              <span>Experiência</span>
+              <strong>Astro + React/Vite</strong>
+            </article>
+            <article>
+              <span>Estado</span>
+              <strong>Redux Toolkit + RTK Query</strong>
+            </article>
+            <article>
+              <span>Gateway de IA</span>
+              <strong>OpenRouter</strong>
+              <code translate="no">OPENROUTER_PRIMARY_MODEL</code>
+            </article>
+            <article>
+              <span>Fallback</span>
+              <strong>Modelos configuráveis</strong>
+            </article>
+          </div>
+          <div class="lead-callout">
+            <span class="callout-label">Invariante central</span>
+            <p>Nenhuma saída de IA altera estado aprovado sem validação de schema e revisão aplicável.</p>
+          </div>
+        </section>
+
+        <section class="document-section" id="objetivos" data-search="objetivos não objetivos escopo">
+          <div class="section-heading">
+            <span>01</span>
+            <div>
+              <p>Fronteira do MVP</p>
+              <h2>Objetivos & não objetivos</h2>
+            </div>
+          </div>
+          <div class="comparison-grid">
+            <article class="comparison-card positive">
+              <h3>O sistema deve</h3>
+              <ul class="check-list">
+                <li>Verticalizar editais e índices com evidência, confiança e revisão.</li>
+                <li>Gerar planos semanais rastreáveis e recalibrar somente o futuro.</li>
+                <li>Isolar locatários, proteger arquivos e cumprir LGPD por padrão.</li>
+                <li>Lançar por etapas, com jobs idempotentes, auditoria e rollback.</li>
+              </ul>
+            </article>
+            <article class="comparison-card neutral">
+              <h3>O MVP não deve</h3>
+              <ul class="dash-list">
+                <li>Ler ou resumir integralmente PDFs de cursos.</li>
+                <li>Criar agenda fixa ou integrar calendários automaticamente.</li>
+                <li>Distribuir materiais protegidos ou automatizar terceiros.</li>
+                <li>Entregar banco de questões, simulados ou aplicativos nativos.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="document-section" id="arquitetura" data-search="arquitetura componentes frontend backend workers dados">
+          <div class="section-heading">
+            <span>02</span>
+            <div>
+              <p>Visão lógica</p>
+              <h2>Arquitetura proposta</h2>
+            </div>
+          </div>
+
+          <div class="architecture-map" aria-label="Fluxo principal da arquitetura">
+            <article class="architecture-node web-node">
+              <span class="node-type">Interface</span>
+              <h3>Web</h3>
+              <p>Astro estático, React, Vite, Redux Toolkit e RTK Query.</p>
+            </article>
+            <span class="flow-arrow" aria-hidden="true">→</span>
+            <article class="architecture-node api-node">
+              <span class="node-type">Fronteira</span>
+              <h3>API Node.js</h3>
+              <p>NestJS, Fastify, OpenAPI, identidade e autorização.</p>
+            </article>
+            <span class="flow-arrow" aria-hidden="true">→</span>
+            <article class="architecture-node domain-node">
+              <span class="node-type">Fonte de verdade</span>
+              <h3>Domínio modular</h3>
+              <p>Editais, materiais, planos, métricas, privacidade e billing.</p>
+            </article>
+            <span class="flow-arrow" aria-hidden="true">→</span>
+            <article class="architecture-node worker-node">
+              <span class="node-type">Assíncrono</span>
+              <h3>Workers & IA</h3>
+              <p>BullMQ, parsing, OCR, matching, fallback e revisão.</p>
+            </article>
+          </div>
+
+          <div class="support-rail">
+            <article>
+              <span>Políticas versionadas</span>
+              <p>Prompts, schemas, entitlements, retenção e limites.</p>
+            </article>
+            <article>
+              <span>Dados duráveis</span>
+              <p>PostgreSQL, pgvector, Redis e objetos S3.</p>
+            </article>
+            <article>
+              <span>Observabilidade</span>
+              <p>Métricas, logs, traces, alertas e custos.</p>
+            </article>
+          </div>
+
+          <h3 class="subsection-title">Componentes principais</h3>
+          <div class="component-grid">
+            <article>
+              <span class="component-code">WEB/API</span>
+              <h4>Experiência & fronteira</h4>
+              <p>Falha fechada para escrita; leitura degradada somente quando segura.</p>
+            </article>
+            <article>
+              <span class="component-code">DOC/AI</span>
+              <h4>Pipeline documental</h4>
+              <p>Preserva entrada, limita retentativas e envia falhas à revisão.</p>
+            </article>
+            <article>
+              <span class="component-code">PLAN</span>
+              <h4>Matching & planejamento</h4>
+              <p>Mantém a última versão aprovada e nunca promove saída inválida.</p>
+            </article>
+            <article>
+              <span class="component-code">OPS</span>
+              <h4>Execução & métricas</h4>
+              <p>Eventos idempotentes; análises degradam sem bloquear o estudo.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="document-section" id="processamento" data-search="processamento DeepSeek Luna OCR fallback revisão humana">
+          <div class="section-heading">
+            <span>03</span>
+            <div>
+              <p>Fluxo assíncrono</p>
+              <h2>Ciclo de processamento</h2>
+            </div>
+          </div>
+
+          <ol class="process-steps">
+            <li>
+              <span>Entrada</span>
+              <p>API recebe identidade, locatário, operação, recurso e idempotency key.</p>
+            </li>
+            <li>
+              <span>Fronteira</span>
+              <p>Valida formato, tamanho, autorização, quota e contexto do locatário.</p>
+            </li>
+            <li>
+              <span>Persistência</span>
+              <p>Registra job, entrada e configuração antes de qualquer efeito externo.</p>
+            </li>
+            <li>
+              <span>Execução</span>
+              <p>Workers aplicam timeout, retentativa, backoff e fila de falhas.</p>
+            </li>
+            <li>
+              <span>Promoção</span>
+              <p>Valida schema e evidência; publica resultado ou encaminha à revisão.</p>
+            </li>
+          </ol>
+
+          <div class="model-router">
+            <div class="router-heading">
+              <span>Roteador de IA</span>
+              <p>O documento é dado não confiável. Cada transição tem um gate.</p>
+            </div>
+            <div class="model-route" aria-label="Rota dos modelos de inteligência artificial">
+              <article>
+                <span>01 · Local</span>
+                <strong>PDF.js</strong>
+                <p>Texto digital e estrutura.</p>
+              </article>
+              <span aria-hidden="true">→</span>
+              <article>
+                <span>02 · Seletivo</span>
+                <strong>Mistral OCR 4</strong>
+                <p>Páginas escaneadas.</p>
+              </article>
+              <span aria-hidden="true">→</span>
+              <article class="primary-model">
+                <span>03 · Gateway</span>
+                <strong>OpenRouter</strong>
+                <code translate="no">OPENROUTER_PRIMARY_MODEL</code>
+                <p>DeepSeek ou outro slug configurado.</p>
+              </article>
+              <span aria-hidden="true">⇢</span>
+              <article class="fallback-model">
+                <span>04 · Fallback</span>
+                <strong>Modelos configuráveis</strong>
+                <p>Lista ordenada no OpenRouter.</p>
+              </article>
+              <span aria-hidden="true">⇢</span>
+              <article class="human-model">
+                <span>05 · Gate</span>
+                <strong>Revisão humana</strong>
+                <p>Evidência ou política insuficiente.</p>
+              </article>
+            </div>
+            <p class="privacy-gate">
+              <strong>Gate LGPD:</strong> OpenRouter usa ZDR e bloqueio de coleta por padrão;
+              documentos reais ainda exigem aprovação do gateway e endpoints elegíveis.
+            </p>
+          </div>
+        </section>
+
+        <section class="document-section" id="contratos" data-search="contratos API dados ProcessingJob schema">
+          <div class="section-heading">
+            <span>04</span>
+            <div>
+              <p>Contrato durável</p>
+              <h2>ProcessingJob</h2>
+            </div>
+          </div>
+          <p class="section-intro">
+            O job captura a intenção e a configuração resolvida. O domínio aprovado continua
+            sendo a fonte de verdade funcional.
+          </p>
+          <div class="table-scroll" tabindex="0" aria-label="Tabela rolável do contrato ProcessingJob">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Campo</th>
+                  <th scope="col">Tipo</th>
+                  <th scope="col">Obrigatório</th>
+                  <th scope="col">Descrição</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td><code>job_id</code></td><td>UUID</td><td>Sim</td><td>Identificador estável do processamento.</td></tr>
+                <tr><td><code>tenant_id</code></td><td>UUID</td><td>Sim</td><td>Fronteira de autorização e isolamento.</td></tr>
+                <tr><td><code>job_type</code></td><td>enum</td><td>Sim</td><td>Extração, matching, exportação, exclusão ou reconciliação.</td></tr>
+                <tr><td><code>resource_version_id</code></td><td>UUID</td><td>Sim</td><td>Versão imutável do documento ou agregado.</td></tr>
+                <tr><td><code>idempotency_key</code></td><td>string</td><td>Sim</td><td>Impede efeitos repetidos para a mesma intenção.</td></tr>
+                <tr><td><code>configuration</code></td><td>object</td><td>Sim</td><td>Modelo, prompt, schema, política e limites.</td></tr>
+                <tr><td><code>result</code></td><td>object/ref</td><td>Não</td><td>Saída, evidências, confiança, erro e métricas.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="document-section" id="consistencia" data-search="consistência idempotência replay falha timeout">
+          <div class="section-heading">
+            <span>05</span>
+            <div>
+              <p>Garantias</p>
+              <h2>Consistência, idempotência & replay</h2>
+            </div>
+          </div>
+          <div class="scenario-list">
+            <article>
+              <h3>Entrada repetida ou replay</h3>
+              <p>Retorna o job ou estado associado, sem novo efeito.</p>
+              <span>Chave idempotente + versão</span>
+            </article>
+            <article>
+              <h3>Escrita obrigatória falha</h3>
+              <p>A operação encerra antes de chamar dependências.</p>
+              <span>Persistência antes do efeito</span>
+            </article>
+            <article>
+              <h3>Timeout ou falha parcial</h3>
+              <p>Retenta com orçamento e depois estaciona para revisão.</p>
+              <span>Evidência preservada</span>
+            </article>
+            <article>
+              <h3>Configuração muda</h3>
+              <p>O job conclui com a versão capturada no início.</p>
+              <span>Replay determinístico</span>
+            </article>
+          </div>
+        </section>
+
+        <section class="document-section" id="seguranca" data-search="segurança privacidade LGPD OIDC PDF isolamento supply chain">
+          <div class="section-heading">
+            <span>06</span>
+            <div>
+              <p>Defesa em profundidade</p>
+              <h2>Segurança & privacidade</h2>
+            </div>
+          </div>
+          <div class="security-grid">
+            <article>
+              <span>Identidade</span>
+              <h3>OIDC gerenciado</h3>
+              <p>Autorização no servidor isola usuários, projetos e organizações.</p>
+            </article>
+            <article>
+              <span>Uploads</span>
+              <h3>Parsing isolado</h3>
+              <p>Quarentena, limites e PDF.js sem eval, credenciais ou saída de rede.</p>
+            </article>
+            <article>
+              <span>Cadeia</span>
+              <h3>Build verificável</h3>
+              <p>Versões corrigidas, lockfile congelado, SBOM e CI sem segredos.</p>
+            </article>
+            <article>
+              <span>Dados</span>
+              <h3>LGPD por design</h3>
+              <p>Finalidade, minimização, retenção, exportação, bloqueio e exclusão.</p>
+            </article>
+          </div>
+          <a class="text-link" href="../security/technology-vulnerability-review.md">
+            Abrir revisão completa de vulnerabilidades <span aria-hidden="true">→</span>
+          </a>
+        </section>
+
+        <section class="document-section" id="prontidao" data-search="prontidão SLO qualidade latência custo segurança restore">
+          <div class="section-heading">
+            <span>07</span>
+            <div>
+              <p>Gates de lançamento</p>
+              <h2>Prontidão operacional</h2>
+            </div>
+          </div>
+          <div class="readiness-list">
+            <article><span>Obrigatório</span><h3>Qualidade da extração</h3><p>Baseline anotada e limiar por campo.</p><strong>IA & Produto</strong></article>
+            <article><span>Obrigatório</span><h3>Latência & custo</h3><p>Percentis e orçamento por classe de job.</p><strong>Engenharia</strong></article>
+            <article><span>Obrigatório</span><h3>Falhas & retentativas</h3><p>Alertas por fila, provedor e taxa de erro.</p><strong>Operações</strong></article>
+            <article><span>Obrigatório</span><h3>Isolamento & segurança</h3><p>Zero acesso horizontal ou vertical em testes.</p><strong>Segurança</strong></article>
+            <article><span>Obrigatório</span><h3>Restauração & replay</h3><p>Restore testado e jobs reconstruíveis.</p><strong>Operações</strong></article>
+          </div>
+          <div class="rollout-line">
+            <span>Dry-run</span><i aria-hidden="true"></i><span>Feature flags</span><i aria-hidden="true"></i><span>Piloto restrito</span><i aria-hidden="true"></i><span>Expansão</span>
+          </div>
+        </section>
+
+        <section class="document-section" id="alternativas" data-search="alternativas NoSQL microserviços LLM SPA TanStack Zustand">
+          <div class="section-heading">
+            <span>08</span>
+            <div>
+              <p>Trade-offs</p>
+              <h2>Alternativas consideradas</h2>
+            </div>
+          </div>
+          <div class="alternatives-list">
+            <details>
+              <summary>NoSQL como fonte principal</summary>
+              <p>Foi considerado pela flexibilidade, mas relações, auditoria e versões favorecem SQL no MVP.</p>
+            </details>
+            <details>
+              <summary>Microserviços desde o início</summary>
+              <p>Escala independente não compensa o custo operacional prematuro; módulos permanecem extraíveis.</p>
+            </details>
+            <details>
+              <summary>Uma chamada LLM ponta a ponta</summary>
+              <p>É simples, mas reduz explicabilidade, validação, controle de custo e capacidade de replay.</p>
+            </details>
+            <details>
+              <summary>TanStack Query + Zustand</summary>
+              <p>É tecnicamente válida, mas o MVP prioriza uma trilha unificada com Redux Toolkit e RTK Query.</p>
+            </details>
+            <details>
+              <summary>Uma SPA para marketing e produto</summary>
+              <p>Reduz aplicações, mas Astro entrega HTML estático e SEO sem SSR obrigatório.</p>
+            </details>
+          </div>
+        </section>
+
+        <section class="document-section final-section" id="proximos-passos" data-search="decisão próximos passos marcos M1 M2 M3 M4">
+          <div class="section-heading">
+            <span>09</span>
+            <div>
+              <p>Sequenciamento</p>
+              <h2>Decisão & próximos passos</h2>
+            </div>
+          </div>
+          <p class="decision-copy">
+            Adotar monorepo TypeScript com Astro estático, React/Vite, Redux
+            Toolkit/RTK Query, Node.js 24, NestJS/Fastify, PostgreSQL/pgvector,
+            Redis/BullMQ e objetos S3. Começar por um tracer bullet de verticalização
+            revisável e expandir após testar qualidade, isolamento, custo e recuperação.
+          </p>
+          <ol class="milestones">
+            <li><span>M1</span><div><h3>Verticalização revisável</h3><p>2 editais anotados; schema e isolamento validados.</p></div></li>
+            <li><span>M2</span><div><h3>Índices, matching & cobertura</h3><p>5 índices; confiança calibrada; replay e auditoria.</p></div></li>
+            <li><span>M3</span><div><h3>Planejamento & execução</h3><p>Dependências, timer e recálculo preservam histórico.</p></div></li>
+            <li><span>M4</span><div><h3>Operação comercial limitada</h3><p>SLOs, restore, pentest, LGPD e billing aprovados.</p></div></li>
+          </ol>
+          <footer class="document-footer">
+            <p>Planejador de Editais · RFC de Arquitetura</p>
+            <a href="../adr/0001-stack-tecnologica-inicial.md">Ler ADR tecnológico</a>
+          </footer>
+        </section>
+
+        <section class="empty-search" id="empty-search" hidden>
+          <h2>Nenhuma seção encontrada</h2>
+          <p>Tente buscar por “IA”, “segurança”, “dados” ou “planejamento”.</p>
+          <button id="clear-search" type="button">Limpar busca</button>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "planejador-edital",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.1.1",
+  "scripts": {
+    "ai:associate": "node --env-file-if-exists=.env --experimental-strip-types packages/ai/src/cli.ts associate",
+    "ai:check": "node --env-file-if-exists=.env --experimental-strip-types packages/ai/src/cli.ts check",
+    "ai:extract-index": "node --env-file-if-exists=.env --experimental-strip-types packages/ai/src/cli.ts extract-index",
+    "ai:verticalize": "node --env-file-if-exists=.env --experimental-strip-types packages/ai/src/cli.ts verticalize",
+    "test": "node --test --experimental-strip-types \"packages/ai/test/**/*.test.ts\" \"tests/**/*.test.mjs\"",
+    "test:ai": "node --test --experimental-strip-types \"packages/ai/test/**/*.test.ts\"",
+    "test:ai:live": "node --test --experimental-strip-types \"packages/ai/test/**/*.live.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2"
+  }
+}
