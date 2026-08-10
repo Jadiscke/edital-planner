@@ -43,6 +43,14 @@ Transformar uma versão processada do edital em árvore de matérias, tópicos e
 - API da árvore — deve respeitar tenant e versão documental;
 - experiência da aplicação — deve apresentar árvore, confiança e acesso à evidência.
 
-**Acceptance criteria:** os seis critérios da issue são obrigatórios, incluindo fixtures determinísticas versionadas, integração persistente, jornada Playwright e teste live somente quando houver credenciais reais.
+**Acceptance criteria:**
+
+- [ ] Um edital processado produz árvore validada com matéria, tópico, subtópico e evidência por item.
+- [ ] Cada item permite abrir sua página ou trecho de origem e exibe confiança sem sinalizar aprovação humana.
+- [ ] Saídas incompatíveis com o schema permanecem fora da árvore funcional e terminam em estado observável.
+- [ ] O resultado persiste versão documental, prompt, modelo resolvido, tokens, custo e latência.
+- [ ] Fixtures reais versionadas cobrem parsing e validação determinísticos sem respostas externas artificiais.
+- [ ] PostgreSQL real, contratos HTTP e Playwright comprovam a jornada do documento concluído à árvore consultável.
+- [ ] A chamada live ao OpenRouter continua opt-in e só executa com credenciais reais.
 
 **Out of scope:** edição e publicação da árvore, política completa de fallback/revisão humana e associações com materiais, cobertas respectivamente pelas issues 07, 06 e 09.
