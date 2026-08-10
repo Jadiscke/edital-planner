@@ -44,10 +44,11 @@ Copie `.env.example` para `.env` e preencha ao menos:
 
 ```dotenv
 OPENROUTER_API_KEY=
-OPENROUTER_PRIMARY_MODEL=
+OPENROUTER_PRIMARY_MODEL=deepseek/deepseek-v4-flash-0731
+OPENROUTER_FALLBACK_MODELS=openai/gpt-5.6-luna
 ```
 
-O modelo é sempre um identificador do catálogo do OpenRouter. Para usar DeepSeek, informe o slug atual oferecido pelo OpenRouter; nenhum alias é codificado no pacote.
+O modelo é sempre um identificador do catálogo do OpenRouter. A configuração recomendada fixa a revisão DeepSeek V4 Flash 0731, em vez de seguir silenciosamente uma revisão futura.
 
 `OPENROUTER_FALLBACK_MODELS` recebe slugs separados por vírgula. O pacote envia a lista ordenada pelo parâmetro `models`, permitindo ao próprio OpenRouter escolher o primeiro modelo disponível.
 
@@ -101,4 +102,3 @@ O smoke test pago usa `OPENROUTER_API_KEY` e `OPENROUTER_PRIMARY_MODEL` do ambie
 - Imagens privadas e PDFs são enviados como data URLs; nenhum arquivo precisa ser publicado.
 - API key nunca integra diagnósticos ou objetos retornados.
 - Retries são limitados; OpenRouter realiza fallback entre os modelos configurados.
-
