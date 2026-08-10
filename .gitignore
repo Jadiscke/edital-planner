@@ -10,4 +10,6 @@ playwright-report/
 *.tsbuildinfo
 .worktrees/
 .nvimlog
+nvim.log
 .astro/
+graphify-out/
