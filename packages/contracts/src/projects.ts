@@ -28,6 +28,7 @@ export const materialIndexItemSchema = z.object({
   id: z.string().trim().min(1).max(80), parentId: z.string().trim().min(1).max(80).nullable(),
   title: z.string().trim().min(1, "Informe o texto do item.").max(300),
   startPage: z.number().int().positive(), endPage: z.number().int().positive(), sourcePage: z.number().int().positive(),
+  sourceId: z.uuid().optional(),
 });
 export const importMaterialIndexSchema = z.object({
   sourceKind: z.enum(["manual", "pdf", "image"]),
@@ -36,6 +37,7 @@ export const importMaterialIndexSchema = z.object({
   base64: z.string().max(8_000_000).optional(),
   pageOffset: z.number().int().min(-10_000).max(10_000),
   items: z.array(materialIndexItemSchema).max(500).optional(),
+  basedOnVersionId: z.uuid().optional(),
 }).superRefine((value, context) => {
   if (value.sourceKind === "manual" && !value.items?.length) context.addIssue({ code: "custom", path: ["items"], message: "Digite ao menos um item." });
   if (value.sourceKind !== "manual" && (!value.base64 || !value.mimeType || !value.sourceFilename)) context.addIssue({ code: "custom", path: ["base64"], message: "Envie somente as páginas do índice." });
@@ -146,17 +148,31 @@ const extractedNodeProperties = {
 } as const;
 const verticalizationTreeSchema = {
   type: "object", additionalProperties: false,
-  required: ["id", "projectId", "documentVersionId", "documentVersionNumber", "contest", "subjects", "warnings", "execution", "createdAt"],
+  required: ["id", "projectId", "documentVersionId", "documentVersionNumber", "contest", "examOptions", "subjects", "warnings", "execution", "createdAt"],
   properties: {
     id: { type: "string", format: "uuid" }, projectId: { type: "string", format: "uuid" },
     documentVersionId: { type: "string", format: "uuid" }, documentVersionNumber: { type: "integer", minimum: 1 },
     contest: { type: "object", required: ["name", "role", "area"], properties: { name: { type: "string" }, role: { type: "string" }, area: { type: "string" } } },
+    examOptions: {
+      type: "array",
+      items: {
+        type: "object", additionalProperties: false,
+        required: ["id", "kind", "label", "name", "code", "evidence"],
+        properties: {
+          id: { type: "string" },
+          kind: { type: "string", enum: ["cargo", "emprego", "funcao", "posto_trabalho", "perfil", "especialidade", "area", "area_atuacao", "enfase", "opcao", "codigo_opcao", "bloco_tematico", "eixo_tematico"] },
+          label: { type: "string" }, name: { type: "string" }, code: { type: ["string", "null"] },
+          evidence: { type: "array", minItems: 1, items: { $ref: "#/components/schemas/VerticalizationEvidence" } },
+        },
+      },
+    },
     subjects: {
       type: "array", minItems: 1,
       items: {
-        type: "object", required: ["originalName", "normalizedName", "confidence", "evidence", "topics"],
+        type: "object", required: ["originalName", "normalizedName", "confidence", "evidence", "examOptionIds", "topics"],
         properties: {
           ...extractedNodeProperties,
+          examOptionIds: { type: "array", items: { type: "string" } },
           topics: {
             type: "array",
             items: {
@@ -319,6 +335,7 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
             projectIdParameter,
             idempotencyHeader,
             { name: "Content-Disposition", in: "header", required: false, schema: { type: "string" } },
+            { name: "X-Processing-Mode", in: "header", required: false, description: "Seleção exclusiva do ambiente local entre fixture determinística e processamento integral.", schema: { type: "string", enum: ["fixture", "full"], default: "full" } },
           ],
           requestBody: {
             required: true,
@@ -344,23 +361,23 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
       },
       "/materials/{materialId}/index-versions": {
         post: {
-          operationId: "importMaterialIndex", summary: "Importar páginas ou digitar índice para revisão", security: protectedSecurity,
-          parameters: [{ name: "materialId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-          requestBody: { required: true, content: json({ type: "object", required: ["sourceKind", "pageOffset"], properties: { sourceKind: { type: "string", enum: ["manual", "pdf", "image"] }, sourceFilename: { type: "string" }, mimeType: { type: "string", enum: ["application/pdf", "image/png", "image/jpeg", "image/webp"] }, base64: { type: "string", maxLength: 8_000_000 }, pageOffset: { type: "integer" }, items: { type: "array", maxItems: 500 } } }) },
+          operationId: "importMaterialIndex", summary: "Importar um ou mais conjuntos de páginas de índice para revisão", security: protectedSecurity,
+          parameters: [{ name: "materialId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, idempotencyHeader],
+          requestBody: { required: true, content: json({ type: "object", required: ["sourceKind", "pageOffset"], properties: { sourceKind: { type: "string", enum: ["manual", "pdf", "image"] }, sourceFilename: { type: "string" }, mimeType: { type: "string", enum: ["application/pdf", "image/png", "image/jpeg", "image/webp"] }, base64: { type: "string", maxLength: 8_000_000 }, pageOffset: { type: "integer" }, basedOnVersionId: { type: "string", format: "uuid", description: "Versão anterior à qual esta nova fonte será anexada cumulativamente." }, items: { type: "array", maxItems: 500 } } }) },
           responses: { "201": response("Versão validada para revisão"), "400": response("Entrada inválida", errorSchema), "422": response("Arquivo ou saída inválida recuperável", errorSchema) },
         },
       },
       "/materials/{materialId}/index-versions/{versionId}/revisions": {
         post: {
           operationId: "reviseMaterialIndex", summary: "Salvar correções como nova versão", security: protectedSecurity,
-          parameters: [{ name: "materialId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { name: "versionId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+          parameters: [{ name: "materialId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { name: "versionId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, idempotencyHeader],
           responses: { "201": response("Nova versão de revisão"), "400": response("Correções inválidas", errorSchema), "404": response("Material ou versão ausente", errorSchema) },
         },
       },
       "/materials/{materialId}/index-versions/{versionId}/approval": {
         post: {
           operationId: "approveMaterialIndex", summary: "Aprovar explicitamente uma versão válida", security: protectedSecurity,
-          parameters: [{ name: "materialId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { name: "versionId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+          parameters: [{ name: "materialId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { name: "versionId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, idempotencyHeader],
           responses: { "201": response("Versão aprovada"), "404": response("Material ou versão ausente", errorSchema), "422": response("Versão inválida não promovida", errorSchema) },
         },
       },

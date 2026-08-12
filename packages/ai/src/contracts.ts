@@ -103,7 +103,35 @@ export const verticalizationTopicSchema = namedExtractedItemSchema.extend({
   subtopics: z.array(verticalizationSubtopicSchema),
 });
 
+export const examOptionKindSchema = z.enum([
+  "cargo",
+  "emprego",
+  "funcao",
+  "posto_trabalho",
+  "perfil",
+  "especialidade",
+  "area",
+  "area_atuacao",
+  "enfase",
+  "opcao",
+  "codigo_opcao",
+  "bloco_tematico",
+  "eixo_tematico",
+]);
+
+export const examOptionSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    kind: examOptionKindSchema,
+    label: z.string().trim().min(1),
+    name: z.string().trim().min(1),
+    code: z.string().trim().min(1).nullable(),
+    evidence: z.array(evidenceSchema).min(1),
+  })
+  .strict();
+
 export const verticalizationSubjectSchema = namedExtractedItemSchema.extend({
+  examOptionIds: z.array(z.string().trim().min(1)).default([]),
   topics: z.array(verticalizationTopicSchema),
 });
 
@@ -117,6 +145,7 @@ export const verticalizationResultSchema = z
         area: z.string().trim().min(1),
       })
       .strict(),
+    examOptions: z.array(examOptionSchema).default([]),
     subjects: z.array(verticalizationSubjectSchema).min(1),
     warnings: z.array(z.string().trim().min(1)),
   })

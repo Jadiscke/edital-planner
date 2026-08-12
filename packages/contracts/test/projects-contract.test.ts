@@ -55,7 +55,11 @@ test("the OpenAPI contract separates archived projects and exposes lifecycle com
 test("the OpenAPI contract exposes material index review and explicit approval", () => {
   const document = projectApiDocument;
   assert.equal(document.paths["/projects/{projectId}/materials"].post.operationId, "createMaterial");
-  assert.equal(document.paths["/materials/{materialId}/index-versions"].post.operationId, "importMaterialIndex");
-  assert.equal(document.paths["/materials/{materialId}/index-versions/{versionId}/revisions"].post.operationId, "reviseMaterialIndex");
-  assert.equal(document.paths["/materials/{materialId}/index-versions/{versionId}/approval"].post.operationId, "approveMaterialIndex");
+  const operations = [
+    document.paths["/materials/{materialId}/index-versions"].post,
+    document.paths["/materials/{materialId}/index-versions/{versionId}/revisions"].post,
+    document.paths["/materials/{materialId}/index-versions/{versionId}/approval"].post,
+  ];
+  assert.deepEqual(operations.map((operation) => operation.operationId), ["importMaterialIndex", "reviseMaterialIndex", "approveMaterialIndex"]);
+  assert.ok(operations.every((operation) => operation.parameters.some((parameter) => parameter.name === "Idempotency-Key")));
 });

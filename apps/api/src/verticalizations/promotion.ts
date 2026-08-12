@@ -31,6 +31,7 @@ export async function promoteVerticalization(input: {
     documentVersionId: input.expectedDocumentVersionId,
     documentVersionNumber: input.documentVersionNumber,
     contest: parsed.data.contest,
+    examOptions: parsed.data.examOptions,
     subjects: parsed.data.subjects,
     warnings: parsed.data.warnings,
     execution: {

@@ -22,7 +22,11 @@ export interface ProjectDraft {
 
 export interface ProcessingJob {
   id: string;
-  documentVersionId: string;
+  kind: "document_verticalization" | "material_index_extraction";
+  documentVersionId?: string;
+  materialId?: string;
+  sourceFilename?: string;
+  resultVersionId?: string;
   projectId: string;
   status: "pending" | "processing" | "completed" | "failed_recoverable" | "failed_invalid_output";
   correlationId: string;
@@ -35,17 +39,28 @@ export interface AcceptedDocument {
   documentVersion: { id: string; projectId: string; versionNumber: number; filename: string; sha256: string; sizeBytes: number; createdAt: string };
   job: ProcessingJob;
 }
-export interface MaterialIndexItem { id: string; parentId: string | null; title: string; startPage: number; endPage: number; sourcePage: number }
-export interface MaterialIndexVersion { id: string; materialId: string; versionNumber: number; sourceKind: "manual" | "pdf" | "image"; sourceFilename?: string; pageOffset: number; items: MaterialIndexItem[]; status: "invalid" | "in_review" | "approved"; validationIssues: string[]; createdAt: string; approvedAt?: string }
+export interface AcceptedMaterialIndexJob { job: ProcessingJob }
+export interface MaterialIndexItem { id: string; parentId: string | null; title: string; startPage: number; endPage: number; sourcePage: number; sourceId?: string }
+export interface MaterialIndexSource {
+  id: string;
+  sourceKind: "pdf" | "image";
+  sourceFilename: string;
+  pageOffset: number;
+  status: "extracted" | "failed";
+  errorCode?: string;
+}
+export interface MaterialIndexVersion { id: string; materialId: string; versionNumber: number; sourceKind: "manual" | "pdf" | "image"; sourceFilename?: string; pageOffset: number; sources: MaterialIndexSource[]; items: MaterialIndexItem[]; status: "invalid" | "in_review" | "approved"; validationIssues: string[]; createdAt: string; approvedAt?: string }
 export interface Material { id: string; projectId: string; title: string; edition: string; versions: MaterialIndexVersion[]; createdAt: string; updatedAt: string }
 
 export interface VerticalizationEvidence { page: number; text: string; boundingBox: { x: number; y: number; width: number; height: number } | null }
 export interface VerticalizationNode { originalName: string; normalizedName: string; confidence: number; evidence: VerticalizationEvidence[] }
 export interface VerticalizationTopic extends VerticalizationNode { subtopics: VerticalizationNode[] }
-export interface VerticalizationSubject extends VerticalizationNode { topics: VerticalizationTopic[] }
+export type ExamOptionKind = "cargo" | "emprego" | "funcao" | "posto_trabalho" | "perfil" | "especialidade" | "area" | "area_atuacao" | "enfase" | "opcao" | "codigo_opcao" | "bloco_tematico" | "eixo_tematico";
+export interface ExamOption { id: string; kind: ExamOptionKind; label: string; name: string; code: string | null; evidence: VerticalizationEvidence[] }
+export interface VerticalizationSubject extends VerticalizationNode { examOptionIds: string[]; topics: VerticalizationTopic[] }
 export interface VerticalizationTree {
   id: string; projectId: string; documentVersionId: string; documentVersionNumber: number;
-  contest: { name: string; role: string; area: string }; subjects: VerticalizationSubject[]; warnings: string[]; createdAt: string;
+  contest: { name: string; role: string; area: string }; examOptions: ExamOption[]; subjects: VerticalizationSubject[]; warnings: string[]; createdAt: string;
   execution: { requestId: string; promptVersion: string; model: string; provider: string | null; promptTokens: number; completionTokens: number; totalTokens: number; cost: number | null; latencyMs: number };
 }
 
@@ -104,8 +119,8 @@ export const projectsApi = createApi({
       }),
       invalidatesTags: ["Project"],
     }),
-    uploadEdital: build.mutation<AcceptedDocument, { projectId: string; file: File; idempotencyKey: string }>({
-      queryFn: async ({ projectId, file, idempotencyKey }, api) => {
+    uploadEdital: build.mutation<AcceptedDocument, { projectId: string; file: File; idempotencyKey: string; processingMode: "fixture" | "full" }>({
+      queryFn: async ({ projectId, file, idempotencyKey, processingMode }, api) => {
         try {
           const response = await fetch(`${API_URL}/projects/${projectId}/editais`, {
             method: "POST",
@@ -113,6 +128,7 @@ export const projectsApi = createApi({
               "content-type": "application/pdf",
               "content-disposition": `attachment; filename="${file.name.replaceAll('"', "")}"`,
               "idempotency-key": idempotencyKey,
+              "x-processing-mode": processingMode,
             },
             body: await new Response(file).arrayBuffer(),
             signal: api.signal,
@@ -128,20 +144,28 @@ export const projectsApi = createApi({
     getProcessingJob: build.query<ProcessingJob, string>({
       query: (jobId) => `/processing-jobs/${jobId}`,
     }),
+    getMaterial: build.query<Material, string>({
+      query: (materialId) => `/materials/${materialId}`,
+    }),
+    listMaterials: build.query<Material[], string>({
+      query: (projectId) => `/projects/${projectId}/materials`,
+      providesTags: ["Material"],
+    }),
     getVerticalization: build.query<VerticalizationTree, string>({
       query: (documentVersionId) => `/document-versions/${documentVersionId}/verticalization`,
     }),
     createMaterial: build.mutation<Material, { projectId: string; title: string; edition: string; idempotencyKey: string }>({
       query: ({ projectId, title, edition, idempotencyKey }) => ({ url: `/projects/${projectId}/materials`, method: "POST", body: { title, edition }, headers: { "Idempotency-Key": idempotencyKey } }),
+      invalidatesTags: ["Material"],
     }),
-    importMaterialIndex: build.mutation<MaterialIndexVersion, { materialId: string; body: Record<string, unknown> }>({
-      query: ({ materialId, body }) => ({ url: `/materials/${materialId}/index-versions`, method: "POST", body }),
+    importMaterialIndex: build.mutation<MaterialIndexVersion | AcceptedMaterialIndexJob, { materialId: string; idempotencyKey: string; body: Record<string, unknown> }>({
+      query: ({ materialId, idempotencyKey, body }) => ({ url: `/materials/${materialId}/index-versions`, method: "POST", body, headers: { "Idempotency-Key": idempotencyKey } }),
     }),
-    reviseMaterialIndex: build.mutation<MaterialIndexVersion, { materialId: string; versionId: string; pageOffset: number; items: MaterialIndexItem[] }>({
-      query: ({ materialId, versionId, ...body }) => ({ url: `/materials/${materialId}/index-versions/${versionId}/revisions`, method: "POST", body }),
+    reviseMaterialIndex: build.mutation<MaterialIndexVersion, { materialId: string; versionId: string; idempotencyKey: string; pageOffset: number; items: MaterialIndexItem[] }>({
+      query: ({ materialId, versionId, idempotencyKey, ...body }) => ({ url: `/materials/${materialId}/index-versions/${versionId}/revisions`, method: "POST", body, headers: { "Idempotency-Key": idempotencyKey } }),
     }),
-    approveMaterialIndex: build.mutation<MaterialIndexVersion, { materialId: string; versionId: string }>({
-      query: ({ materialId, versionId }) => ({ url: `/materials/${materialId}/index-versions/${versionId}/approval`, method: "POST" }),
+    approveMaterialIndex: build.mutation<MaterialIndexVersion, { materialId: string; versionId: string; idempotencyKey: string }>({
+      query: ({ materialId, versionId, idempotencyKey }) => ({ url: `/materials/${materialId}/index-versions/${versionId}/approval`, method: "POST", headers: { "Idempotency-Key": idempotencyKey } }),
     }),
   }),
 });
@@ -153,8 +177,11 @@ export const {
   useCreateProjectMutation,
   useDuplicateProjectMutation,
   useGetProcessingJobQuery,
+  useLazyGetMaterialQuery,
+  useLazyGetProcessingJobQuery,
   useGetVerticalizationQuery,
   useImportMaterialIndexMutation,
+  useListMaterialsQuery,
   useListProjectsQuery,
   useReviseMaterialIndexMutation,
   useUploadEditalMutation,

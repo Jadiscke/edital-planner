@@ -13,15 +13,15 @@ describe("material index review", () => {
     const suggestion = await service.importIndex(owner, material.id, {
       sourceKind: "manual", pageOffset: 12,
       items: [{ id: "chapter-1", parentId: null, title: "Atos administrativos", startPage: 41, endPage: 39, sourcePage: 2 }],
-    });
+    }, "index-import-01");
     assert.equal(suggestion.status, "invalid");
-    await assert.rejects(service.approve(owner, material.id, suggestion.id), MaterialVersionInvalidError);
+    await assert.rejects(service.approve(owner, material.id, suggestion.id, "index-approval-invalid-01"), MaterialVersionInvalidError);
 
     const corrected = await service.revise(owner, material.id, suggestion.id, {
       pageOffset: 12,
       items: [{ id: "chapter-1", parentId: null, title: "Atos administrativos", startPage: 41, endPage: 58, sourcePage: 2 }],
-    });
-    const approved = await service.approve(owner, material.id, corrected.id);
+    }, "index-revision-01");
+    const approved = await service.approve(owner, material.id, corrected.id, "index-approval-01");
 
     assert.equal(approved.status, "approved");
     assert.equal(approved.versionNumber, 2);

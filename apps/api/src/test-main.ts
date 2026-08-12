@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { Pool } from "pg";
+import { createAiService, type AiService } from "../../../packages/ai/src/index.ts";
 import { InMemoryProjectRepository } from "../../../packages/domain/src/projects.ts";
-import { InMemoryDocumentPipeline, type DocumentPipeline } from "../../../packages/domain/src/documents.ts";
 import { InMemoryVerticalizationRepository } from "../../../packages/domain/src/verticalizations.ts";
 import { InMemoryMaterialRepository } from "../../../packages/domain/src/materials.ts";
 import { createApi } from "./app.ts";
@@ -10,6 +10,9 @@ import { InMemoryMembershipResolver } from "./authorization.ts";
 import { InMemorySessionStore } from "./sessions.ts";
 import { runMigrations } from "./persistence/migrate.ts";
 import { PostgresProjectRepository } from "./persistence/projects.ts";
+import { createDevelopmentMaterialIndexExtractor, createOptionalMaterialIndexExtractor } from "./material-index-extractor.ts";
+import { DevelopmentDocumentPipeline } from "./documents/development-pipeline.ts";
+import { createDevelopmentTestEditalCatalog } from "./test-editals.ts";
 
 if (process.env.NODE_ENV === "production") throw new Error("The test API must never run in production");
 
@@ -23,42 +26,23 @@ const pool = postgres ? new Pool({ connectionString: postgres.getConnectionUri()
 if (pool) await runMigrations(pool);
 const projects = pool ? new PostgresProjectRepository(pool) : inMemoryProjects;
 const verticalizations = new InMemoryVerticalizationRepository();
-class CompletingTestDocumentPipeline extends InMemoryDocumentPipeline {
-  override async upload(input: Parameters<DocumentPipeline["upload"]>[0]) {
-    const accepted = await super.upload(input);
-    if (accepted.job.status === "pending") {
-      setTimeout(() => {
-        void this.start(accepted.job.id)
-          .then(() => new Promise((resolve) => setTimeout(resolve, 75)))
-          .then(async () => {
-            await verticalizations.save({
-              id: randomUUID(), tenantId: input.identity.tenantId, projectId: input.projectId,
-              documentVersionId: accepted.documentVersion.id, documentVersionNumber: accepted.documentVersion.versionNumber,
-              contest: { name: "DATAPREV", role: "Analista", area: "Tecnologia" }, warnings: [], createdAt: new Date().toISOString(),
-              subjects: [{ originalName: "CONHECIMENTOS GERAIS", normalizedName: "Conhecimentos Gerais", confidence: .98,
-                evidence: [{ page: 14, text: "CONHECIMENTOS GERAIS", boundingBox: null }],
-                topics: [{ originalName: "LÍNGUA PORTUGUESA", normalizedName: "Língua Portuguesa", confidence: .91,
-                  evidence: [{ page: 14, text: "LÍNGUA PORTUGUESA: compreensão e interpretação de textos.", boundingBox: null }], subtopics: [] }] }],
-              execution: { requestId: "e2e-fixture", promptVersion: "verticalize-edital@1.0.0", model: "fixture/schema-validator", provider: null,
-                promptTokens: 10, completionTokens: 20, totalTokens: 30, cost: null, latencyMs: 12 },
-            });
-            await this.complete(accepted.job.id);
-          });
-      }, 25);
-    }
-    return accepted;
-  }
-}
-const documents = new CompletingTestDocumentPipeline();
+const unavailableAi: Pick<AiService, "verticalizeEdital"> = {
+  async verticalizeEdital() { throw new Error("Configure o OpenRouter para usar o processamento completo."); },
+};
+const aiService = process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_PRIMARY_MODEL ? createAiService(process.env) : unavailableAi;
+const documents = new DevelopmentDocumentPipeline({ verticalizations, aiService });
 const materials = new InMemoryMaterialRepository();
+const materialIndexExtractor = createOptionalMaterialIndexExtractor(process.env) ?? createDevelopmentMaterialIndexExtractor();
 const qaFlows = new Map<string, string>();
 const api = await createApi({
   projects,
   documents,
   verticalizations,
   materials,
+  materialIndexExtractor,
   sessions: new InMemorySessionStore(),
   memberships,
+  testEditals: createDevelopmentTestEditalCatalog(new URL("../../../docs/pdfs-tests/", import.meta.url)),
   verifyAccessToken: async () => { throw new Error("Bearer tokens are disabled in E2E"); },
   bff: {
     begin: async (returnTo) => {

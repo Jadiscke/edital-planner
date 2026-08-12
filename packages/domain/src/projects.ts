@@ -76,7 +76,7 @@ export class InMemoryProjectRepository implements ProjectRepository {
   reset(): void { this.projects.clear(); this.idempotency.clear(); }
 
   async create(identity: IdentityContext, input: ProjectInput, idempotencyKey: string): Promise<Project> {
-    const key = `${identity.tenantId}:${idempotencyKey}`;
+    const key = `${identity.tenantId}:create:${idempotencyKey}`;
     const existingId = this.idempotency.get(key);
     if (existingId) return this.projects.get(existingId)!;
 
@@ -125,7 +125,7 @@ export class InMemoryProjectRepository implements ProjectRepository {
   async duplicate(identity: IdentityContext, projectId: string, idempotencyKey: string): Promise<Project> {
     const original = this.projects.get(projectId);
     if (!original || original.tenantId !== identity.tenantId) throw new ProjectNotFoundError();
-    const key = `${identity.tenantId}:${idempotencyKey}`;
+    const key = `${identity.tenantId}:duplicate:${projectId}:${idempotencyKey}`;
     const existingId = this.idempotency.get(key);
     if (existingId) return this.projects.get(existingId)!;
     const now = new Date().toISOString();

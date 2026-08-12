@@ -39,7 +39,8 @@ export class PostgresProjectRepository implements ProjectRepository {
 
   async create(identity: IdentityContext, input: ProjectInput, idempotencyKey: string): Promise<Project> {
     return this.database.transaction(async (transaction) => {
-      await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${`${identity.tenantId}:${idempotencyKey}`}))`);
+      const requestKey = `create:${idempotencyKey}`;
+      await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${`${identity.tenantId}:${requestKey}`}))`);
       const [existingRequest] = await transaction
         .select({ project: projectsTable })
         .from(projectIdempotencyTable)
@@ -47,7 +48,7 @@ export class PostgresProjectRepository implements ProjectRepository {
         .where(
           and(
             eq(projectIdempotencyTable.tenantId, identity.tenantId),
-            eq(projectIdempotencyTable.idempotencyKey, idempotencyKey),
+            eq(projectIdempotencyTable.idempotencyKey, requestKey),
           ),
         )
         .limit(1);
@@ -68,7 +69,7 @@ export class PostgresProjectRepository implements ProjectRepository {
       await Promise.all([
         transaction.insert(projectIdempotencyTable).values({
           tenantId: identity.tenantId,
-          idempotencyKey,
+          idempotencyKey: requestKey,
           projectId,
         }),
         transaction.insert(auditEventsTable).values({
@@ -143,11 +144,12 @@ export class PostgresProjectRepository implements ProjectRepository {
 
   async duplicate(identity: IdentityContext, projectId: string, idempotencyKey: string): Promise<Project> {
     return this.database.transaction(async (transaction) => {
-      await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${`${identity.tenantId}:${idempotencyKey}`}))`);
+      const requestKey = `duplicate:${projectId}:${idempotencyKey}`;
+      await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${`${identity.tenantId}:${requestKey}`}))`);
       const [existingRequest] = await transaction.select({ project: projectsTable })
         .from(projectIdempotencyTable)
         .innerJoin(projectsTable, eq(projectIdempotencyTable.projectId, projectsTable.id))
-        .where(and(eq(projectIdempotencyTable.tenantId, identity.tenantId), eq(projectIdempotencyTable.idempotencyKey, idempotencyKey)))
+        .where(and(eq(projectIdempotencyTable.tenantId, identity.tenantId), eq(projectIdempotencyTable.idempotencyKey, requestKey)))
         .limit(1);
       if (existingRequest) return toProject(existingRequest.project);
 
@@ -162,7 +164,7 @@ export class PostgresProjectRepository implements ProjectRepository {
       }).returning();
       if (!duplicate) throw new Error("Project duplicate insert did not return a row");
       await Promise.all([
-        transaction.insert(projectIdempotencyTable).values({ tenantId: identity.tenantId, idempotencyKey, projectId: duplicateId }),
+        transaction.insert(projectIdempotencyTable).values({ tenantId: identity.tenantId, idempotencyKey: requestKey, projectId: duplicateId }),
         transaction.insert(auditEventsTable).values({
           id: randomUUID(), tenantId: identity.tenantId, actorIssuer: identity.issuer,
           actorSubject: identity.subjectId, action: "project.duplicated", resourceType: "project",

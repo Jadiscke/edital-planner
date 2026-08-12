@@ -77,6 +77,7 @@ function toAcceptedDocument(row: PersistedUploadRow): AcceptedDocument {
 function toJob(row: PersistedJobRow): ProcessingJob {
   return {
     id: row.id,
+    kind: "document_verticalization",
     documentVersionId: row.document_version_id,
     projectId: row.project_id,
     status: row.status,
@@ -191,7 +192,7 @@ export class PostgresS3DocumentPipeline implements DocumentPipeline {
   async getJob(identity: IdentityContext, jobId: string): Promise<ProcessingJob | undefined> {
     const result = await this.options.pool.query<PersistedJobRow>(
       `SELECT id, document_version_id, project_id, status, correlation_id, error_code, created_at, updated_at
-       FROM processing_jobs WHERE id = $1 AND tenant_id = $2`,
+       FROM processing_jobs WHERE id = $1 AND tenant_id = $2 AND kind = 'document_verticalization'`,
       [jobId, identity.tenantId],
     );
     return result.rows[0] ? toJob(result.rows[0]) : undefined;

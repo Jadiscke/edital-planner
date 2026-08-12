@@ -1,5 +1,4 @@
 import { Pool } from "pg";
-import { randomUUID } from "node:crypto";
 import { createAiService } from "../../../packages/ai/src/index.ts";
 
 import { createApi } from "./app.ts";
@@ -13,6 +12,8 @@ import { createDocumentInfrastructure } from "./documents/infrastructure.ts";
 import { PostgresS3DocumentPipeline } from "./documents/pipeline.ts";
 import { BullMqDocumentQueue } from "./documents/worker.ts";
 import { PostgresVerticalizationRepository } from "./verticalizations/repository.ts";
+import { createMaterialIndexExtractor } from "./material-index-extractor.ts";
+import { PostgresS3MaterialIndexProcessingPipeline } from "./material-index-pipeline.ts";
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
@@ -50,6 +51,7 @@ const trustedProxyIps = proxySetting === "none" ? [] : proxySetting.split(",").m
 const documentInfrastructure = createDocumentInfrastructure(process.env);
 const ai = createAiService(process.env);
 const documentQueue = new BullMqDocumentQueue(documentInfrastructure);
+const materials = new PostgresMaterialRepository(pool);
 const callbackUrl = new URL(requiredEnvironment("OIDC_CALLBACK_URL"));
 if (productionSecurity && (allowedOrigins.some((origin) => new URL(origin).protocol !== "https:") || callbackUrl.protocol !== "https:")) throw new Error("Production origins and OIDC callback must use HTTPS");
 if (!productionSecurity && [...allowedOrigins.map((origin) => new URL(origin)), callbackUrl].some((url) => !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) throw new Error("Development plaintext is restricted to loopback hosts");
@@ -62,19 +64,14 @@ const api = await createApi({
     queue: documentQueue,
   }),
   verticalizations: new PostgresVerticalizationRepository(pool),
-  materials: new PostgresMaterialRepository(pool),
-  materialIndexExtractor: {
-    async extract(input) {
-      const result = await ai.extractMaterialIndex({ documentVersionId: randomUUID(), materialId: input.materialId, knownPageOffset: input.knownPageOffset,
-        ...(input.sourceKind === "pdf" ? { pdf: { fileName: input.sourceFilename, base64: input.base64 } } : { images: [{ page: 1, mimeType: input.mimeType as "image/png" | "image/jpeg" | "image/webp", base64: input.base64 }] }) });
-      const pathIds = new Map<string, string>();
-      const items = result.data.items.map((item, index) => {
-        const pathKey = item.path.join("\u001f"); const id = `item-${index + 1}`; pathIds.set(pathKey, id);
-        return { id, parentId: pathIds.get(item.path.slice(0, -1).join("\u001f")) ?? null, title: item.normalizedTitle, startPage: item.startPage, endPage: item.endPage, sourcePage: item.evidence[0]!.page };
-      });
-      return { pageOffset: result.data.pageOffset, items, audit: { requestId: result.audit.requestId, model: result.audit.model, provider: result.audit.provider, promptVersion: result.audit.promptVersion, durationMs: result.audit.durationMs, usage: { ...result.audit.usage } } };
-    },
-  },
+  materials,
+  materialIndexPipeline: new PostgresS3MaterialIndexProcessingPipeline({
+    pool,
+    s3: documentInfrastructure.s3,
+    bucket: documentInfrastructure.bucket,
+    materials,
+    queue: documentQueue,
+  }),
   sessions: new PostgresSessionStore(pool),
   memberships: new PostgresMembershipResolver(pool),
   verifyAccessToken: oidc.verifyAccessToken,

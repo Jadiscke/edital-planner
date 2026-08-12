@@ -41,12 +41,15 @@ import {
 } from "../../../packages/domain/src/projects.ts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { MembershipResolver } from "./authorization.ts";
+import type { TestEditalCatalog } from "./test-editals.ts";
 import {
   DocumentRejectedError,
   type DocumentPipeline,
 } from "../../../packages/domain/src/documents.ts";
 import { InMemoryVerticalizationRepository, type VerticalizationRepository } from "../../../packages/domain/src/verticalizations.ts";
 import { InMemoryMaterialRepository, MaterialIndexService, MaterialNotFoundError, MaterialVersionInvalidError, type MaterialIndexItem, type MaterialRepository } from "../../../packages/domain/src/materials.ts";
+import { InMemoryMaterialIndexProcessingPipeline, type MaterialIndexExtractor, type MaterialIndexProcessingPipeline } from "./material-index-processing.ts";
+export type { MaterialIndexExtractor } from "./material-index-processing.ts";
 import {
   FLOW_COOKIE,
   SESSION_COOKIE,
@@ -108,14 +111,11 @@ const PROJECT_REPOSITORY = Symbol("PROJECT_REPOSITORY");
 const DOCUMENT_PIPELINE = Symbol("DOCUMENT_PIPELINE");
 const VERTICALIZATION_REPOSITORY = Symbol("VERTICALIZATION_REPOSITORY");
 const MATERIAL_REPOSITORY = Symbol("MATERIAL_REPOSITORY");
-const MATERIAL_INDEX_EXTRACTOR = Symbol("MATERIAL_INDEX_EXTRACTOR");
+const MATERIAL_INDEX_PIPELINE = Symbol("MATERIAL_INDEX_PIPELINE");
+const TEST_EDITAL_CATALOG = Symbol("TEST_EDITAL_CATALOG");
 const VERIFY_ACCESS_TOKEN = Symbol("VERIFY_ACCESS_TOKEN");
 const AUTH_OPTIONS = Symbol("AUTH_OPTIONS");
 const OPENAPI_DOCUMENT = Symbol("OPENAPI_DOCUMENT");
-
-export interface MaterialIndexExtractor {
-  extract(input: { materialId: string; sourceKind: "pdf" | "image"; sourceFilename: string; mimeType: "application/pdf" | "image/png" | "image/jpeg" | "image/webp"; base64: string; knownPageOffset: number }): Promise<{ pageOffset: number; items: MaterialIndexItem[]; audit: Record<string, unknown> }>;
-}
 
 @Injectable()
 class OidcGuard implements CanActivate {
@@ -254,6 +254,7 @@ class DocumentsController {
   constructor(
     @Inject(PROJECT_REPOSITORY) private readonly projects: ProjectRepository,
     @Inject(DOCUMENT_PIPELINE) private readonly documents: DocumentPipeline,
+    @Inject(MATERIAL_INDEX_PIPELINE) private readonly materialIndexes: MaterialIndexProcessingPipeline | undefined,
   ) {}
 
   @Post("projects/:projectId/editais")
@@ -262,14 +263,22 @@ class DocumentsController {
     @Param("projectId") projectId: string,
     @Headers("idempotency-key") idempotencyKey: string | undefined,
     @Headers("content-disposition") contentDisposition: string | undefined,
+    @Headers("x-processing-mode") processingMode: string | undefined,
     @Body() body: Buffer,
   ) {
     if (!idempotencyKey || idempotencyKey.length < 8) throw new BadRequestException("Informe uma chave de idempotência válida.");
-    const ownsProject = (await this.projects.list(request.identity)).some((project) => project.id === projectId);
-    if (!ownsProject) throw new NotFoundException("Projeto não encontrado.");
+    const project = (await this.projects.list(request.identity)).find((candidate) => candidate.id === projectId);
+    if (!project) throw new NotFoundException("Projeto não encontrado.");
     const filename = /filename="?([^";]+)"?/i.exec(contentDisposition ?? "")?.[1] ?? "edital.pdf";
+    if (processingMode !== undefined && processingMode !== "fixture" && processingMode !== "full") {
+      throw new BadRequestException("Use o modo de processamento fixture ou full.");
+    }
     try {
-      return await this.documents.upload({ identity: request.identity, projectId, idempotencyKey, filename, bytes: body });
+      return await this.documents.upload({
+        identity: request.identity, projectId, idempotencyKey, filename, bytes: body,
+        processingMode: processingMode ?? "full",
+        contestHints: { name: project.concurso, role: project.cargo, area: project.area },
+      });
     } catch (error) {
       if (error instanceof DocumentRejectedError) {
         throw new UnprocessableEntityException({ code: error.code, message: error.message });
@@ -280,9 +289,32 @@ class DocumentsController {
 
   @Get("processing-jobs/:jobId")
   async status(@Req() request: AuthenticatedRequest, @Param("jobId") jobId: string) {
-    const job = await this.documents.getJob(request.identity, jobId);
+    const job = await this.documents.getJob(request.identity, jobId) ?? await this.materialIndexes?.getJob(request.identity, jobId);
     if (!job) throw new NotFoundException("Processamento não encontrado.");
     return job;
+  }
+}
+
+@Controller("development/test-editals")
+@UseGuards(OidcGuard)
+class DevelopmentTestEditalsController {
+  constructor(@Inject(TEST_EDITAL_CATALOG) private readonly catalog: TestEditalCatalog | undefined) {}
+
+  @Get()
+  list() {
+    if (!this.catalog) throw new NotFoundException();
+    return this.catalog.list();
+  }
+
+  @Get(":id")
+  async download(@Param("id") id: string, @Res() reply: FastifyReply) {
+    if (!this.catalog) throw new NotFoundException();
+    const edital = this.catalog.list().find((candidate) => candidate.id === id);
+    const bytes = edital ? await this.catalog.load(id) : undefined;
+    if (!edital || !bytes) throw new NotFoundException("Edital de teste não encontrado.");
+    reply.header("content-type", "application/pdf");
+    reply.header("content-disposition", `attachment; filename="${edital.filename}"`);
+    return reply.send(bytes);
   }
 }
 
@@ -304,7 +336,13 @@ class VerticalizationsController {
 @UseGuards(OidcGuard)
 class MaterialsController {
   private readonly service: MaterialIndexService;
-  constructor(@Inject(PROJECT_REPOSITORY) private readonly projects: ProjectRepository, @Inject(MATERIAL_REPOSITORY) repository: MaterialRepository, @Inject(MATERIAL_INDEX_EXTRACTOR) private readonly extractor: MaterialIndexExtractor | undefined) { this.service = new MaterialIndexService(repository); }
+  constructor(@Inject(PROJECT_REPOSITORY) private readonly projects: ProjectRepository, @Inject(MATERIAL_REPOSITORY) repository: MaterialRepository, @Inject(MATERIAL_INDEX_PIPELINE) private readonly pipeline: MaterialIndexProcessingPipeline | undefined) { this.service = new MaterialIndexService(repository); }
+
+  @Get("projects/:projectId/materials")
+  async list(@Req() request: AuthenticatedRequest, @Param("projectId") projectId: string) {
+    if (!(await this.projects.list(request.identity)).some((project) => project.id === projectId)) throw new NotFoundException("Projeto não encontrado.");
+    return this.service.list(request.identity, projectId);
+  }
 
   @Post("projects/:projectId/materials")
   async create(@Req() request: AuthenticatedRequest, @Param("projectId") projectId: string, @Headers("idempotency-key") key: string | undefined, @Body() body: unknown) {
@@ -324,35 +362,48 @@ class MaterialsController {
   }
 
   @Post("materials/:materialId/index-versions")
-  async importIndex(@Req() request: AuthenticatedRequest, @Param("materialId") materialId: string, @Body() body: unknown) {
+  async importIndex(@Req() request: AuthenticatedRequest, @Param("materialId") materialId: string, @Headers("idempotency-key") key: string | undefined, @Body() body: unknown, @Res({ passthrough: true }) reply: FastifyReply) {
+    const idempotencyKey = this.requiredIdempotencyKey(key);
     const parsed = importMaterialIndexSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException({ message: "Revise a entrada do índice.", fieldErrors: toFieldErrors(parsed.error) });
-    if (parsed.data.sourceKind === "manual") return this.run(() => this.service.importIndex(request.identity, materialId, { sourceKind: "manual", pageOffset: parsed.data.pageOffset, items: parsed.data.items as MaterialIndexItem[] }));
-    if (!this.extractor) throw new ServiceUnavailableException("A extração automática está indisponível. Digite o índice ou tente novamente.");
+    if (parsed.data.sourceKind === "manual") return this.run(() => this.service.importIndex(request.identity, materialId, { sourceKind: "manual", pageOffset: parsed.data.pageOffset, items: parsed.data.items as MaterialIndexItem[] }, idempotencyKey));
+    if (!this.pipeline) throw new ServiceUnavailableException("A extração automática está indisponível. Digite o índice ou tente novamente.");
     const sourceKind = parsed.data.sourceKind as "pdf" | "image"; const mimeType = parsed.data.mimeType!; const sourceFilename = parsed.data.sourceFilename!;
     const base64 = parsed.data.base64!; const bytes = Buffer.from(base64, "base64");
     if (bytes.byteLength === 0 || bytes.byteLength > 5 * 1024 * 1024) throw new UnprocessableEntityException({ code: "invalid_index_pages", message: "Envie até 5 MB somente com as páginas do índice." });
     const valid = sourceKind === "pdf" ? mimeType === "application/pdf" && bytes.subarray(0, 5).toString("latin1") === "%PDF-" : mimeType !== "application/pdf" && ({ "image/png": "89504e470d0a1a0a", "image/jpeg": "ffd8ff", "image/webp": "52494646" } as const)[mimeType]?.startsWith(bytes.subarray(0, mimeType === "image/png" ? 8 : mimeType === "image/jpeg" ? 3 : 4).toString("hex"));
     if (!valid) throw new UnprocessableEntityException({ code: "invalid_index_pages", message: "O arquivo não corresponde ao formato informado. Envie PDF, PNG, JPEG ou WebP." });
-    try {
-      const extracted = await this.extractor.extract({ materialId, sourceKind, sourceFilename, mimeType, base64, knownPageOffset: parsed.data.pageOffset });
-      return await this.run(() => this.service.importIndex(request.identity, materialId, { sourceKind, sourceFilename, pageOffset: extracted.pageOffset, items: extracted.items, inferenceAudit: extracted.audit }));
-    } catch (error) {
-      if (error instanceof HttpException) throw error;
-      return await this.run(() => this.service.importIndex(request.identity, materialId, { sourceKind, sourceFilename, pageOffset: parsed.data.pageOffset, items: [{ id: "item-1", parentId: null, title: "", startPage: 1, endPage: 1, sourcePage: 1 }], inferenceAudit: { outcome: "invalid_output", recoverable: true } }));
-    }
+    reply.status(202);
+    return this.run(() => this.pipeline!.submit({
+      identity: request.identity,
+      materialId,
+      idempotencyKey,
+      sourceKind,
+      sourceFilename,
+      mimeType,
+      base64,
+      pageOffset: parsed.data.pageOffset,
+      ...(parsed.data.basedOnVersionId ? { basedOnVersionId: parsed.data.basedOnVersionId } : {}),
+    }));
   }
 
   @Post("materials/:materialId/index-versions/:versionId/revisions")
-  async revise(@Req() request: AuthenticatedRequest, @Param("materialId") materialId: string, @Param("versionId") versionId: string, @Body() body: unknown) {
+  async revise(@Req() request: AuthenticatedRequest, @Param("materialId") materialId: string, @Param("versionId") versionId: string, @Headers("idempotency-key") key: string | undefined, @Body() body: unknown) {
+    const idempotencyKey = this.requiredIdempotencyKey(key);
     const parsed = reviseMaterialIndexSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException({ message: "Revise os itens destacados.", fieldErrors: toFieldErrors(parsed.error) });
-    return this.run(() => this.service.revise(request.identity, materialId, versionId, parsed.data));
+    const items: MaterialIndexItem[] = parsed.data.items.map(({ sourceId, ...item }) => ({ ...item, ...(sourceId ? { sourceId } : {}) }));
+    return this.run(() => this.service.revise(request.identity, materialId, versionId, { pageOffset: parsed.data.pageOffset, items }, idempotencyKey));
   }
 
   @Post("materials/:materialId/index-versions/:versionId/approval")
-  approve(@Req() request: AuthenticatedRequest, @Param("materialId") materialId: string, @Param("versionId") versionId: string) {
-    return this.run(() => this.service.approve(request.identity, materialId, versionId));
+  approve(@Req() request: AuthenticatedRequest, @Param("materialId") materialId: string, @Param("versionId") versionId: string, @Headers("idempotency-key") key: string | undefined) {
+    return this.run(() => this.service.approve(request.identity, materialId, versionId, this.requiredIdempotencyKey(key)));
+  }
+
+  private requiredIdempotencyKey(key: string | undefined): string {
+    if (!key || key.length < 8) throw new BadRequestException("Informe uma chave de idempotência válida.");
+    return key;
   }
 
   private async run<T>(operation: () => Promise<T>): Promise<T> {
@@ -497,6 +548,7 @@ export interface CreateApiOptions {
   verticalizations?: VerticalizationRepository;
   materials?: MaterialRepository;
   materialIndexExtractor?: MaterialIndexExtractor;
+  materialIndexPipeline?: MaterialIndexProcessingPipeline;
   verifyAccessToken: VerifyAccessToken;
   sessions: SessionStore;
   memberships: MembershipResolver;
@@ -505,6 +557,7 @@ export interface CreateApiOptions {
   secureCookies?: boolean;
   testIdentity?: AccessIdentity;
   resetTestState?: () => void | Promise<void>;
+  testEditals?: TestEditalCatalog;
   openIdConnectUrl: string;
   trustedProxyIps: readonly string[];
 }
@@ -524,15 +577,20 @@ export async function createApi(options: CreateApiOptions): Promise<FastifyInsta
     ...(options.testIdentity ? { testIdentity: options.testIdentity } : {}),
     ...(options.resetTestState ? { resetTestState: options.resetTestState } : {}),
   };
+  const materialRepository = options.materials ?? new InMemoryMaterialRepository();
+  const materialIndexPipeline = options.materialIndexPipeline ?? (options.materialIndexExtractor
+    ? new InMemoryMaterialIndexProcessingPipeline(materialRepository, options.materialIndexExtractor)
+    : undefined);
 
   @Module({
-    controllers: [ProjectsController, DocumentsController, VerticalizationsController, MaterialsController, ContractController, AuthenticationController],
+    controllers: [ProjectsController, DocumentsController, DevelopmentTestEditalsController, VerticalizationsController, MaterialsController, ContractController, AuthenticationController],
     providers: [
       { provide: PROJECT_REPOSITORY, useValue: options.projects },
       { provide: DOCUMENT_PIPELINE, useValue: options.documents },
       { provide: VERTICALIZATION_REPOSITORY, useValue: options.verticalizations ?? new InMemoryVerticalizationRepository() },
-      { provide: MATERIAL_REPOSITORY, useValue: options.materials ?? new InMemoryMaterialRepository() },
-      { provide: MATERIAL_INDEX_EXTRACTOR, useValue: options.materialIndexExtractor },
+      { provide: MATERIAL_REPOSITORY, useValue: materialRepository },
+      { provide: MATERIAL_INDEX_PIPELINE, useValue: materialIndexPipeline },
+      { provide: TEST_EDITAL_CATALOG, useValue: options.testEditals },
       { provide: VERIFY_ACCESS_TOKEN, useValue: options.verifyAccessToken },
       { provide: AUTH_OPTIONS, useValue: authentication },
       { provide: OPENAPI_DOCUMENT, useValue: createProjectApiDocument(options.openIdConnectUrl) },
@@ -547,7 +605,7 @@ export async function createApi(options: CreateApiOptions): Promise<FastifyInsta
   app.enableCors({
     origin: [...options.allowedOrigins],
     methods: ["GET", "POST", "PATCH", "OPTIONS"],
-    allowedHeaders: ["authorization", "content-type", "content-disposition", "idempotency-key", "x-request-id"],
+    allowedHeaders: ["authorization", "content-type", "content-disposition", "idempotency-key", "x-processing-mode", "x-request-id"],
     credentials: true,
     maxAge: 600,
   });

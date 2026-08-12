@@ -10,10 +10,12 @@ const tree = {
   documentVersionId: "version-a",
   documentVersionNumber: 1,
   contest: { name: "DATAPREV", role: "Analista", area: "Tecnologia" },
+  examOptions: [],
   subjects: [{
     originalName: "LÍNGUA PORTUGUESA",
     normalizedName: "Língua Portuguesa",
     confidence: 0.96,
+    examOptionIds: [],
     evidence: [{ page: 12, text: "LÍNGUA PORTUGUESA: compreensão de textos.", boundingBox: null }],
     topics: [{
       originalName: "Compreensão de textos",

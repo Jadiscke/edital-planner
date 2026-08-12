@@ -16,7 +16,19 @@ export interface VerticalizationTopic extends VerticalizationNode {
 }
 
 export interface VerticalizationSubject extends VerticalizationNode {
+  readonly examOptionIds: readonly string[];
   readonly topics: readonly VerticalizationTopic[];
+}
+
+export type ExamOptionKind = "cargo" | "emprego" | "funcao" | "posto_trabalho" | "perfil" | "especialidade" | "area" | "area_atuacao" | "enfase" | "opcao" | "codigo_opcao" | "bloco_tematico" | "eixo_tematico";
+
+export interface ExamOption {
+  readonly id: string;
+  readonly kind: ExamOptionKind;
+  readonly label: string;
+  readonly name: string;
+  readonly code: string | null;
+  readonly evidence: readonly VerticalizationEvidence[];
 }
 
 export interface VerticalizationTree {
@@ -26,6 +38,7 @@ export interface VerticalizationTree {
   readonly documentVersionId: string;
   readonly documentVersionNumber: number;
   readonly contest: { readonly name: string; readonly role: string; readonly area: string };
+  readonly examOptions: readonly ExamOption[];
   readonly subjects: readonly VerticalizationSubject[];
   readonly warnings: readonly string[];
   readonly execution: {

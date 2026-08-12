@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "dev:worker": "tsx watch src/worker-main.ts",
-    "dev:test": "tsx src/test-main.ts",
+    "dev:test": "node --env-file-if-exists=../../.env --import tsx src/test-main.ts",
     "migrate": "tsx src/migrate-main.ts",
     "test": "vitest run",
     "test:postgres": "vitest run test/projects.postgres.test.ts",

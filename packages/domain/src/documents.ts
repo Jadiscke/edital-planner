@@ -16,7 +16,11 @@ export interface DocumentVersion {
 
 export interface ProcessingJob {
   id: string;
-  documentVersionId: string;
+  kind: "document_verticalization" | "material_index_extraction";
+  documentVersionId?: string;
+  materialId?: string;
+  sourceFilename?: string;
+  resultVersionId?: string;
   projectId: string;
   status: ProcessingJobStatus;
   correlationId: string;
@@ -30,6 +34,8 @@ export interface AcceptedDocument {
   job: ProcessingJob;
 }
 
+export type DocumentProcessingMode = "fixture" | "full";
+
 export interface DocumentPipeline {
   upload(input: {
     identity: IdentityContext;
@@ -37,6 +43,8 @@ export interface DocumentPipeline {
     idempotencyKey: string;
     filename: string;
     bytes: Uint8Array;
+    processingMode?: DocumentProcessingMode;
+    contestHints?: { name?: string; role?: string; area?: string };
   }): Promise<AcceptedDocument>;
   getJob(identity: IdentityContext, jobId: string): Promise<ProcessingJob | undefined>;
 }
@@ -85,6 +93,8 @@ export class InMemoryDocumentPipeline implements DocumentPipeline {
     idempotencyKey: string;
     filename: string;
     bytes: Uint8Array;
+    processingMode?: DocumentProcessingMode;
+    contestHints?: { name?: string; role?: string; area?: string };
   }): Promise<AcceptedDocument> {
     validatePdf(input.bytes);
     const requestKey = `${input.identity.tenantId}:${input.projectId}:${input.idempotencyKey}`;
@@ -105,6 +115,7 @@ export class InMemoryDocumentPipeline implements DocumentPipeline {
     this.objects.set(`${input.identity.tenantId}/${input.projectId}/${documentVersion.id}.pdf`, stored);
     const job: ProcessingJob & { tenantId: string } = {
       id: randomUUID(),
+      kind: "document_verticalization",
       documentVersionId: documentVersion.id,
       projectId: input.projectId,
       status: "pending",

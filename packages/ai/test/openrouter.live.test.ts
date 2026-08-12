@@ -9,6 +9,7 @@ import {
 const liveTestsEnabled = process.env.RUN_OPENROUTER_LIVE_TESTS === "true";
 const paidLiveTestsEnabled =
   process.env.RUN_OPENROUTER_PAID_LIVE_TESTS === "true" &&
+  process.env.OPENROUTER_DOCUMENT_TRANSFER_APPROVED === "true" &&
   Boolean(process.env.OPENROUTER_API_KEY) &&
   Boolean(process.env.OPENROUTER_PRIMARY_MODEL);
 
@@ -21,6 +22,7 @@ test(
       OPENROUTER_PRIMARY_MODEL:
         process.env.OPENROUTER_PRIMARY_MODEL ?? "openrouter/auto",
       OPENROUTER_MAX_RETRIES: "0",
+      OPENROUTER_DOCUMENT_TRANSFER_APPROVED: "true",
     });
 
     await assert.rejects(

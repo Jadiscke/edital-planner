@@ -87,3 +87,20 @@ test("duplicating creates an independently editable active project with a tracea
   assert.equal((await projects.list(owner)).find((project) => project.id === original.id)?.area, "Tecnologia");
   await assert.rejects(projects.duplicate(outsider, original.id, "foreign-request"), /Projeto não encontrado/);
 });
+
+test("creation and duplication keep independent idempotency scopes", async () => {
+  const projects = new ProjectService(new InMemoryProjectRepository());
+  const owner = { issuer: "https://identity.test", tenantId: "tenant-a", subjectId: "candidate-a" };
+  const original = await projects.create(
+    owner,
+    { concurso: "BACEN", cargo: "Analista", area: "Tecnologia" },
+    "shared-request",
+  );
+
+  const duplicate = await projects.duplicate(owner, original.id, "shared-request");
+  const repeated = await projects.duplicate(owner, original.id, "shared-request");
+
+  assert.notEqual(duplicate.id, original.id);
+  assert.equal(duplicate.sourceProjectId, original.id);
+  assert.equal(repeated.id, duplicate.id);
+});
