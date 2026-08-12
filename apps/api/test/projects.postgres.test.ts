@@ -80,6 +80,36 @@ describe.skipIf(!runPostgresTests)("projects with real PostgreSQL", () => {
     );
   });
 
+  it("archives and independently duplicates projects with append-only origin evidence", async () => {
+    const owner = { issuer: "https://identity.test", subjectId: "candidate-life", tenantId: "tenant-life", correlationId: randomUUID() };
+    const outsider = { issuer: "https://identity.test", subjectId: "outsider", tenantId: "tenant-other", correlationId: randomUUID() };
+    const original = await projects.create(owner, { concurso: "BACEN", cargo: "Analista", area: "Tecnologia" }, "lifecycle-original");
+
+    const archived = await projects.archive(owner, original.id);
+    const duplicate = await projects.duplicate(owner, original.id, "lifecycle-duplicate");
+    const repeated = await projects.duplicate(owner, original.id, "lifecycle-duplicate");
+    await projects.update(owner, duplicate.id, { area: "Economia" });
+
+    expect(archived).toMatchObject({ status: "archived" });
+    expect(archived.archivedAt).toBeTruthy();
+    expect(await projects.list(owner, "archived")).toEqual([archived]);
+    expect((await projects.list(owner, "active")).find((project) => project.id === original.id)).toBeUndefined();
+    expect(duplicate).toMatchObject({ status: "active", sourceProjectId: original.id });
+    expect(repeated.id).toBe(duplicate.id);
+    expect((await projects.list(owner, "archived"))[0]?.area).toBe("Tecnologia");
+    await expect(projects.archive(outsider, original.id)).rejects.toThrow("Projeto não encontrado");
+    await expect(projects.duplicate(outsider, original.id, "foreign-duplicate")).rejects.toThrow("Projeto não encontrado");
+    const lifecycleAudit = await pool.query<{ action: string; resource_id: string; source_project_id: string | null }>(
+      "select action, resource_id, source_project_id from audit_events where tenant_id=$1 and action in ('project.archived','project.duplicated') order by created_at",
+      [owner.tenantId],
+    );
+    expect(lifecycleAudit.rows).toEqual([
+      { action: "project.archived", resource_id: original.id, source_project_id: null },
+      { action: "project.duplicated", resource_id: duplicate.id, source_project_id: original.id },
+    ]);
+    await expect(pool.query("update projects set source_project_id=null where id=$1", [duplicate.id])).rejects.toThrow("project origin is immutable");
+  });
+
   it("accepts a separate DML-only runtime role and rejects DDL", async () => {
     await pool.query("CREATE ROLE planejador_runtime LOGIN PASSWORD 'runtime-test-only'");
     await pool.query("GRANT CONNECT ON DATABASE postgres TO planejador_runtime");

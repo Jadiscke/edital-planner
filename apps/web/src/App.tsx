@@ -1,10 +1,10 @@
+import { useState } from "react";
 import { Provider as ReduxProvider } from "react-redux";
 
 import { useBffSession } from "./auth.ts";
 import { ProjectComposer } from "./components/ProjectComposer.tsx";
 import { AccountLogin, ProjectWorkspace } from "./components/AccountProjectExperience.tsx";
 import { createAppStore, projectsApi } from "./state.ts";
-const store = createAppStore();
 
 function BrandHeader({ authenticated, loggingOut, error, onLogout }: { authenticated: boolean; loggingOut: boolean; error: string; onLogout: () => void }) {
   return (
@@ -20,6 +20,7 @@ function BrandHeader({ authenticated, loggingOut, error, onLogout }: { authentic
 }
 
 export function App({ initialAuthenticated }: { initialAuthenticated?: boolean }) {
+  const [store] = useState(createAppStore);
   const session = useBffSession(initialAuthenticated);
   const logout = async () => {
     if (await session.logout()) store.dispatch(projectsApi.util.resetApiState());

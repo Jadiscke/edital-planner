@@ -20,6 +20,35 @@ export const updateProjectSchema = createProjectSchema.partial().refine(
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 
+export const createMaterialSchema = z.object({
+  title: z.string().trim().min(2, "Informe o título do material.").max(180),
+  edition: z.string().trim().min(1, "Informe a edição.").max(80),
+});
+export const materialIndexItemSchema = z.object({
+  id: z.string().trim().min(1).max(80), parentId: z.string().trim().min(1).max(80).nullable(),
+  title: z.string().trim().min(1, "Informe o texto do item.").max(300),
+  startPage: z.number().int().positive(), endPage: z.number().int().positive(), sourcePage: z.number().int().positive(),
+  sourceId: z.uuid().optional(),
+});
+export const importMaterialIndexSchema = z.object({
+  sourceKind: z.enum(["manual", "pdf", "image"]),
+  sourceFilename: z.string().trim().min(1).max(180).optional(),
+  mimeType: z.enum(["application/pdf", "image/png", "image/jpeg", "image/webp"]).optional(),
+  base64: z.string().max(8_000_000).optional(),
+  pageOffset: z.number().int().min(-10_000).max(10_000),
+  items: z.array(materialIndexItemSchema).max(500).optional(),
+  basedOnVersionId: z.uuid().optional(),
+}).superRefine((value, context) => {
+  if (value.sourceKind === "manual" && !value.items?.length) context.addIssue({ code: "custom", path: ["items"], message: "Digite ao menos um item." });
+  if (value.sourceKind !== "manual" && (!value.base64 || !value.mimeType || !value.sourceFilename)) context.addIssue({ code: "custom", path: ["base64"], message: "Envie somente as páginas do índice." });
+});
+export const reviseMaterialIndexSchema = z.object({
+  pageOffset: z.number().int().min(-10_000).max(10_000), items: z.array(materialIndexItemSchema).min(1).max(500),
+});
+
+export type CreateMaterialInput = z.infer<typeof createMaterialSchema>;
+export type ImportMaterialIndexInput = z.infer<typeof importMaterialIndexSchema>;
+
 export function toFieldErrors(error: ZodError): Record<string, string> {
   const fields: Record<string, string> = {};
   for (const issue of error.issues) {
@@ -44,12 +73,15 @@ const updateInputSchema = {
 const projectSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["id", "concurso", "cargo", "area", "createdAt", "updatedAt"],
+  required: ["id", "concurso", "cargo", "area", "status", "createdAt", "updatedAt"],
   properties: {
     id: { type: "string", format: "uuid" },
     concurso: { type: "string" },
     cargo: { type: "string" },
     area: { type: "string" },
+    status: { type: "string", enum: ["active", "archived"] },
+    archivedAt: { type: "string", format: "date-time" },
+    sourceProjectId: { type: "string", format: "uuid" },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
   },
@@ -73,7 +105,7 @@ const processingJobSchema = {
     id: { type: "string", format: "uuid" },
     documentVersionId: { type: "string", format: "uuid" },
     projectId: { type: "string", format: "uuid" },
-    status: { type: "string", enum: ["pending", "processing", "completed", "failed_recoverable"] },
+    status: { type: "string", enum: ["pending", "processing", "completed", "failed_recoverable", "failed_invalid_output"] },
     correlationId: { type: "string", format: "uuid" },
     errorCode: { type: "string" },
     createdAt: { type: "string", format: "date-time" },
@@ -103,12 +135,74 @@ const acceptedDocumentSchema = {
     job: { $ref: "#/components/schemas/ProcessingJob" },
   },
 } as const;
+const evidenceSchema = {
+  type: "object", additionalProperties: false, required: ["page", "text", "boundingBox"],
+  properties: { page: { type: "integer", minimum: 1 }, text: { type: "string", minLength: 1 },
+    boundingBox: { oneOf: [{ type: "null" }, { type: "object", required: ["x", "y", "width", "height"],
+      properties: { x: { type: "number" }, y: { type: "number" }, width: { type: "number" }, height: { type: "number" } } }] } },
+} as const;
+const extractedNodeProperties = {
+  originalName: { type: "string", minLength: 1 }, normalizedName: { type: "string", minLength: 1 },
+  confidence: { type: "number", minimum: 0, maximum: 1 },
+  evidence: { type: "array", minItems: 1, items: { $ref: "#/components/schemas/VerticalizationEvidence" } },
+} as const;
+const verticalizationTreeSchema = {
+  type: "object", additionalProperties: false,
+  required: ["id", "projectId", "documentVersionId", "documentVersionNumber", "contest", "examOptions", "subjects", "warnings", "execution", "createdAt"],
+  properties: {
+    id: { type: "string", format: "uuid" }, projectId: { type: "string", format: "uuid" },
+    documentVersionId: { type: "string", format: "uuid" }, documentVersionNumber: { type: "integer", minimum: 1 },
+    contest: { type: "object", required: ["name", "role", "area"], properties: { name: { type: "string" }, role: { type: "string" }, area: { type: "string" } } },
+    examOptions: {
+      type: "array",
+      items: {
+        type: "object", additionalProperties: false,
+        required: ["id", "kind", "label", "name", "code", "evidence"],
+        properties: {
+          id: { type: "string" },
+          kind: { type: "string", enum: ["cargo", "emprego", "funcao", "posto_trabalho", "perfil", "especialidade", "area", "area_atuacao", "enfase", "opcao", "codigo_opcao", "bloco_tematico", "eixo_tematico"] },
+          label: { type: "string" }, name: { type: "string" }, code: { type: ["string", "null"] },
+          evidence: { type: "array", minItems: 1, items: { $ref: "#/components/schemas/VerticalizationEvidence" } },
+        },
+      },
+    },
+    subjects: {
+      type: "array", minItems: 1,
+      items: {
+        type: "object", required: ["originalName", "normalizedName", "confidence", "evidence", "examOptionIds", "topics"],
+        properties: {
+          ...extractedNodeProperties,
+          examOptionIds: { type: "array", items: { type: "string" } },
+          topics: {
+            type: "array",
+            items: {
+              type: "object", required: ["originalName", "normalizedName", "confidence", "evidence", "subtopics"],
+              properties: {
+                ...extractedNodeProperties,
+                subtopics: {
+                  type: "array",
+                  items: { type: "object", required: ["originalName", "normalizedName", "confidence", "evidence"], properties: extractedNodeProperties },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    warnings: { type: "array", items: { type: "string" } },
+    execution: { type: "object", required: ["requestId", "promptVersion", "model", "provider", "promptTokens", "completionTokens", "totalTokens", "cost", "latencyMs"],
+      properties: { requestId: { type: "string" }, promptVersion: { type: "string" }, model: { type: "string" }, provider: { type: ["string", "null"] },
+        promptTokens: { type: "integer" }, completionTokens: { type: "integer" }, totalTokens: { type: "integer" }, cost: { type: ["number", "null"] }, latencyMs: { type: "integer" } } },
+    createdAt: { type: "string", format: "date-time" },
+  },
+} as const;
 const idempotencyHeader = {
   name: "Idempotency-Key",
   in: "header",
   required: true,
   schema: { type: "string", minLength: 8, maxLength: 128 },
 } as const;
+const projectIdParameter = { name: "projectId", in: "path", required: true, schema: { type: "string", format: "uuid" } } as const;
 
 export function createProjectApiDocument(openIdConnectUrl: string) {
   return {
@@ -167,6 +261,7 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
           operationId: "listProjects",
           summary: "Listar projetos do tenant autenticado",
           security: protectedSecurity,
+          parameters: [{ name: "status", in: "query", required: false, schema: { type: "string", enum: ["active", "archived"], default: "active" } }],
           responses: {
             "200": response("Projetos autorizados", { type: "array", items: projectSchema }),
             "401": response("Sessão ou token inválido", errorSchema),
@@ -191,11 +286,40 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
           operationId: "updateProject",
           summary: "Atualizar um projeto autorizado",
           security: protectedSecurity,
-          parameters: [{ name: "projectId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+          parameters: [projectIdParameter],
           requestBody: { required: true, content: json(updateInputSchema) },
           responses: {
             "200": response("Projeto atualizado", projectSchema),
             "400": response("Dados inválidos", errorSchema),
+            "401": response("Sessão ou token inválido", errorSchema),
+            "403": response("Origem não permitida", errorSchema),
+            "404": response("Projeto ausente ou pertencente a outro tenant", errorSchema),
+          },
+        },
+      },
+      "/projects/{projectId}/archive": {
+        post: {
+          operationId: "archiveProject",
+          summary: "Arquivar um projeto sem apagar seu histórico",
+          security: protectedSecurity,
+          parameters: [projectIdParameter],
+          responses: {
+            "200": response("Projeto arquivado", projectSchema),
+            "401": response("Sessão ou token inválido", errorSchema),
+            "403": response("Origem não permitida", errorSchema),
+            "404": response("Projeto ausente ou pertencente a outro tenant", errorSchema),
+          },
+        },
+      },
+      "/projects/{projectId}/duplicates": {
+        post: {
+          operationId: "duplicateProject",
+          summary: "Duplicar um projeto com origem rastreável",
+          security: protectedSecurity,
+          parameters: [projectIdParameter, idempotencyHeader],
+          responses: {
+            "201": response("Duplicata ativa criada ou recuperada de forma idempotente", projectSchema),
+            "400": response("Chave de idempotência inválida", errorSchema),
             "401": response("Sessão ou token inválido", errorSchema),
             "403": response("Origem não permitida", errorSchema),
             "404": response("Projeto ausente ou pertencente a outro tenant", errorSchema),
@@ -208,9 +332,10 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
           summary: "Enviar e versionar um edital em PDF",
           security: protectedSecurity,
           parameters: [
-            { name: "projectId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+            projectIdParameter,
             idempotencyHeader,
             { name: "Content-Disposition", in: "header", required: false, schema: { type: "string" } },
+            { name: "X-Processing-Mode", in: "header", required: false, description: "Seleção exclusiva do ambiente local entre fixture determinística e processamento integral.", schema: { type: "string", enum: ["fixture", "full"], default: "full" } },
           ],
           requestBody: {
             required: true,
@@ -226,6 +351,36 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
           },
         },
       },
+      "/projects/{projectId}/materials": {
+        post: {
+          operationId: "createMaterial", summary: "Cadastrar material e edição", security: protectedSecurity,
+          parameters: [{ name: "projectId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, idempotencyHeader],
+          requestBody: { required: true, content: json({ type: "object", additionalProperties: false, required: ["title", "edition"], properties: { title: { type: "string", minLength: 2, maxLength: 180 }, edition: { type: "string", minLength: 1, maxLength: 80 } } }) },
+          responses: { "201": response("Material cadastrado"), "400": response("Dados inválidos", errorSchema), "404": response("Projeto ausente", errorSchema) },
+        },
+      },
+      "/materials/{materialId}/index-versions": {
+        post: {
+          operationId: "importMaterialIndex", summary: "Importar um ou mais conjuntos de páginas de índice para revisão", security: protectedSecurity,
+          parameters: [{ name: "materialId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, idempotencyHeader],
+          requestBody: { required: true, content: json({ type: "object", required: ["sourceKind", "pageOffset"], properties: { sourceKind: { type: "string", enum: ["manual", "pdf", "image"] }, sourceFilename: { type: "string" }, mimeType: { type: "string", enum: ["application/pdf", "image/png", "image/jpeg", "image/webp"] }, base64: { type: "string", maxLength: 8_000_000 }, pageOffset: { type: "integer" }, basedOnVersionId: { type: "string", format: "uuid", description: "Versão anterior à qual esta nova fonte será anexada cumulativamente." }, items: { type: "array", maxItems: 500 } } }) },
+          responses: { "201": response("Versão validada para revisão"), "400": response("Entrada inválida", errorSchema), "422": response("Arquivo ou saída inválida recuperável", errorSchema) },
+        },
+      },
+      "/materials/{materialId}/index-versions/{versionId}/revisions": {
+        post: {
+          operationId: "reviseMaterialIndex", summary: "Salvar correções como nova versão", security: protectedSecurity,
+          parameters: [{ name: "materialId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { name: "versionId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, idempotencyHeader],
+          responses: { "201": response("Nova versão de revisão"), "400": response("Correções inválidas", errorSchema), "404": response("Material ou versão ausente", errorSchema) },
+        },
+      },
+      "/materials/{materialId}/index-versions/{versionId}/approval": {
+        post: {
+          operationId: "approveMaterialIndex", summary: "Aprovar explicitamente uma versão válida", security: protectedSecurity,
+          parameters: [{ name: "materialId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { name: "versionId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, idempotencyHeader],
+          responses: { "201": response("Versão aprovada"), "404": response("Material ou versão ausente", errorSchema), "422": response("Versão inválida não promovida", errorSchema) },
+        },
+      },
       "/processing-jobs/{jobId}": {
         get: {
           operationId: "getProcessingJob",
@@ -236,6 +391,17 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
             "200": response("Estado durável do processamento", { $ref: "#/components/schemas/ProcessingJob" }),
             "401": response("Sessão ou token inválido", errorSchema),
             "404": response("Processamento ausente ou pertencente a outro tenant", errorSchema),
+          },
+        },
+      },
+      "/document-versions/{documentVersionId}/verticalization": {
+        get: {
+          operationId: "getVerticalization", summary: "Consultar a árvore verticalizada e suas evidências", security: protectedSecurity,
+          parameters: [{ name: "documentVersionId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+          responses: {
+            "200": response("Árvore validada e rastreável", { $ref: "#/components/schemas/VerticalizationTree" }),
+            "401": response("Sessão ou token inválido", errorSchema),
+            "404": response("Verticalização ausente ou pertencente a outro tenant", errorSchema),
           },
         },
       },
@@ -252,6 +418,8 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
         DocumentVersion: documentVersionSchema,
         ProcessingJob: processingJobSchema,
         AcceptedDocument: acceptedDocumentSchema,
+        VerticalizationEvidence: evidenceSchema,
+        VerticalizationTree: verticalizationTreeSchema,
         Error: errorSchema,
       },
     },

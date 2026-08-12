@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "dev:worker": "tsx watch src/worker-main.ts",
-    "dev:test": "tsx src/test-main.ts",
+    "dev:test": "node --env-file-if-exists=../../.env --import tsx src/test-main.ts",
     "migrate": "tsx src/migrate-main.ts",
     "test": "vitest run",
     "test:postgres": "vitest run test/projects.postgres.test.ts",
@@ -19,6 +19,7 @@
     "@nestjs/platform-fastify": "11.1.29",
     "@planejador/contracts": "workspace:*",
     "@planejador/domain": "workspace:*",
+    "@planejador/ai": "workspace:*",
     "bullmq": "6.0.10",
     "drizzle-orm": "0.45.2",
     "fastify": "5.11.3",

@@ -24,6 +24,15 @@ import {
   type OpenRouterContentPart,
 } from "./openrouter.ts";
 import { AI_PROMPTS } from "./prompts.ts";
+import { verticalizeParsedPdf } from "./pdf-verticalizer.ts";
+import { extractLocalPdfText } from "./pdf-text.ts";
+
+export class DocumentProcessingNotApprovedError extends Error {
+  constructor() {
+    super("O processamento documental está bloqueado até a aprovação dos controles locais ou da transferência externa.");
+    this.name = "DocumentProcessingNotApprovedError";
+  }
+}
 
 export interface AiService {
   checkConfiguration(): Promise<AiConfigurationDiagnostic>;
@@ -104,6 +113,54 @@ export function createAiService(
     async verticalizeEdital(input) {
       const parsed = verticalizeEditalInputSchema.parse(input);
       const prompt = AI_PROMPTS.verticalizeEdital;
+      if (parsed.pdf) {
+        const startedAt = performance.now();
+        const localText = config.localPdfParsingApproved ? await extractLocalPdfText(parsed.pdf.base64) : null;
+        if (localText) {
+          try {
+            const data = verticalizationResultSchema.parse(verticalizeParsedPdf({
+              documentVersionId: parsed.documentVersionId,
+              extractedText: localText,
+              ...(parsed.contestHints ? { contestHints: parsed.contestHints } : {}),
+            }));
+            return {
+              data,
+              audit: {
+                durationMs: Math.round(performance.now() - startedAt),
+                model: "deterministic-local-parser",
+                promptVersion: "verticalize-digital-pdf-locally@1.0.0",
+                provider: null,
+                requestId: `local-${parsed.documentVersionId}`,
+                usage: {
+                  cachedTokens: 0,
+                  completionTokens: 0,
+                  cost: 0,
+                  promptTokens: 0,
+                  reasoningTokens: 0,
+                  totalTokens: 0,
+                },
+              },
+            };
+          } catch {
+            // If the local text layer is not structurally usable, use the remote parser below.
+          }
+        }
+        if (!config.documentTransferApproved) throw new DocumentProcessingNotApprovedError();
+        const parsedPdf = await client.parsePdf({
+          base64: parsed.pdf.base64,
+          fileName: parsed.pdf.fileName,
+          promptVersion: "parse-pdf-for-verticalization@1.0.0",
+        });
+        return {
+          data: verticalizationResultSchema.parse(verticalizeParsedPdf({
+            documentVersionId: parsed.documentVersionId,
+            extractedText: parsedPdf.data.extractedText,
+            ...(parsed.contestHints ? { contestHints: parsed.contestHints } : {}),
+          })),
+          audit: parsedPdf.audit,
+        };
+      }
+      if (!config.documentTransferApproved) throw new DocumentProcessingNotApprovedError();
       return client.completeStructured({
         promptVersion: prompt.version,
         systemPrompt: prompt.system,
@@ -120,6 +177,7 @@ export function createAiService(
 
     async extractMaterialIndex(input) {
       const parsed = extractMaterialIndexInputSchema.parse(input);
+      if (!config.documentTransferApproved) throw new DocumentProcessingNotApprovedError();
       const prompt = AI_PROMPTS.extractMaterialIndex;
       return client.completeStructured({
         promptVersion: prompt.version,

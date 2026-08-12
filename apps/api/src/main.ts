@@ -1,14 +1,19 @@
 import { Pool } from "pg";
+import { createAiService } from "../../../packages/ai/src/index.ts";
 
 import { createApi } from "./app.ts";
 import { createDiscoveredOidcBff } from "./oidc.ts";
 import { PostgresProjectRepository } from "./persistence/projects.ts";
+import { PostgresMaterialRepository } from "./persistence/materials.ts";
 import { PostgresMembershipResolver } from "./persistence/authorization.ts";
 import { PostgresAuthorizationFlowStore, PostgresSessionStore } from "./persistence/sessions.ts";
 import { assertRuntimeDatabaseRole } from "./persistence/runtime-role.ts";
 import { createDocumentInfrastructure } from "./documents/infrastructure.ts";
 import { PostgresS3DocumentPipeline } from "./documents/pipeline.ts";
 import { BullMqDocumentQueue } from "./documents/worker.ts";
+import { PostgresVerticalizationRepository } from "./verticalizations/repository.ts";
+import { createMaterialIndexExtractor } from "./material-index-extractor.ts";
+import { PostgresS3MaterialIndexProcessingPipeline } from "./material-index-pipeline.ts";
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
@@ -44,7 +49,9 @@ const allowedOrigins = requiredEnvironment("WEB_ORIGINS").split(",").map((origin
 const proxySetting = requiredEnvironment("TRUSTED_PROXY_IPS");
 const trustedProxyIps = proxySetting === "none" ? [] : proxySetting.split(",").map((address) => address.trim()).filter(Boolean);
 const documentInfrastructure = createDocumentInfrastructure(process.env);
+const ai = createAiService(process.env);
 const documentQueue = new BullMqDocumentQueue(documentInfrastructure);
+const materials = new PostgresMaterialRepository(pool);
 const callbackUrl = new URL(requiredEnvironment("OIDC_CALLBACK_URL"));
 if (productionSecurity && (allowedOrigins.some((origin) => new URL(origin).protocol !== "https:") || callbackUrl.protocol !== "https:")) throw new Error("Production origins and OIDC callback must use HTTPS");
 if (!productionSecurity && [...allowedOrigins.map((origin) => new URL(origin)), callbackUrl].some((url) => !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) throw new Error("Development plaintext is restricted to loopback hosts");
@@ -54,6 +61,15 @@ const api = await createApi({
     pool,
     s3: documentInfrastructure.s3,
     bucket: documentInfrastructure.bucket,
+    queue: documentQueue,
+  }),
+  verticalizations: new PostgresVerticalizationRepository(pool),
+  materials,
+  materialIndexPipeline: new PostgresS3MaterialIndexProcessingPipeline({
+    pool,
+    s3: documentInfrastructure.s3,
+    bucket: documentInfrastructure.bucket,
+    materials,
     queue: documentQueue,
   }),
   sessions: new PostgresSessionStore(pool),

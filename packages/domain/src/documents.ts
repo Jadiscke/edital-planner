@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { IdentityContext } from "./projects.ts";
 
-export type ProcessingJobStatus = "pending" | "processing" | "completed" | "failed_recoverable";
+export type ProcessingJobStatus = "pending" | "processing" | "completed" | "failed_recoverable" | "failed_invalid_output";
 
 export interface DocumentVersion {
   id: string;
@@ -16,7 +16,11 @@ export interface DocumentVersion {
 
 export interface ProcessingJob {
   id: string;
-  documentVersionId: string;
+  kind: "document_verticalization" | "material_index_extraction";
+  documentVersionId?: string;
+  materialId?: string;
+  sourceFilename?: string;
+  resultVersionId?: string;
   projectId: string;
   status: ProcessingJobStatus;
   correlationId: string;
@@ -30,6 +34,8 @@ export interface AcceptedDocument {
   job: ProcessingJob;
 }
 
+export type DocumentProcessingMode = "fixture" | "full";
+
 export interface DocumentPipeline {
   upload(input: {
     identity: IdentityContext;
@@ -37,6 +43,8 @@ export interface DocumentPipeline {
     idempotencyKey: string;
     filename: string;
     bytes: Uint8Array;
+    processingMode?: DocumentProcessingMode;
+    contestHints?: { name?: string; role?: string; area?: string };
   }): Promise<AcceptedDocument>;
   getJob(identity: IdentityContext, jobId: string): Promise<ProcessingJob | undefined>;
 }
@@ -85,6 +93,8 @@ export class InMemoryDocumentPipeline implements DocumentPipeline {
     idempotencyKey: string;
     filename: string;
     bytes: Uint8Array;
+    processingMode?: DocumentProcessingMode;
+    contestHints?: { name?: string; role?: string; area?: string };
   }): Promise<AcceptedDocument> {
     validatePdf(input.bytes);
     const requestKey = `${input.identity.tenantId}:${input.projectId}:${input.idempotencyKey}`;
@@ -105,6 +115,7 @@ export class InMemoryDocumentPipeline implements DocumentPipeline {
     this.objects.set(`${input.identity.tenantId}/${input.projectId}/${documentVersion.id}.pdf`, stored);
     const job: ProcessingJob & { tenantId: string } = {
       id: randomUUID(),
+      kind: "document_verticalization",
       documentVersionId: documentVersion.id,
       projectId: input.projectId,
       status: "pending",
@@ -136,12 +147,16 @@ export class InMemoryDocumentPipeline implements DocumentPipeline {
     this.transition(jobId, "failed_recoverable", errorCode);
   }
 
+  async rejectInvalidOutput(jobId: string): Promise<void> {
+    this.transition(jobId, "failed_invalid_output", "verticalization_schema_invalid");
+  }
+
   private transition(jobId: string, status: ProcessingJobStatus, errorCode?: string): void {
     const job = this.jobs.get(jobId);
     if (!job) throw new Error("ProcessingJob not found");
     const allowed =
       (job.status === "pending" && (status === "processing" || status === "failed_recoverable"))
-      || (job.status === "processing" && (status === "completed" || status === "failed_recoverable"));
+      || (job.status === "processing" && (status === "completed" || status === "failed_recoverable" || status === "failed_invalid_output"));
     if (!allowed) throw new Error(`Invalid ProcessingJob transition: ${job.status} -> ${status}`);
     this.jobs.set(jobId, {
       ...job,

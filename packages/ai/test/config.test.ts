@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { AiConfigurationError, createAiService } from "../src/index.ts";
+import { loadOpenRouterConfig } from "../src/config.ts";
 
 test("configuration fails before inference and reports every missing required variable", () => {
   assert.throws(
@@ -52,4 +53,14 @@ test("blank optional environment variables behave as unset", async () => {
 
   const diagnostic = await service.checkConfiguration();
   assert.equal(diagnostic.baseUrl, "https://openrouter.ai/api/v1");
+});
+
+test("PDF processing defaults avoid paid OCR and automatic paid retries", () => {
+  const config = loadOpenRouterConfig({
+    OPENROUTER_API_KEY: "diagnostic-only",
+    OPENROUTER_PRIMARY_MODEL: "deepseek/deepseek-v4-flash-0731",
+  });
+
+  assert.equal(config.pdfEngine, "cloudflare-ai");
+  assert.equal(config.maxRetries, 0);
 });

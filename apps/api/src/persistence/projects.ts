@@ -10,6 +10,7 @@ import {
   type Project,
   type ProjectInput,
   type ProjectRepository,
+  type ProjectStatus,
 } from "../../../../packages/domain/src/projects.ts";
 import { auditEventsTable, projectIdempotencyTable, projectsTable } from "./schema.ts";
 
@@ -21,6 +22,9 @@ function toProject(row: typeof projectsTable.$inferSelect): Project {
     concurso: row.concurso,
     cargo: row.cargo,
     area: row.area,
+    status: row.status as ProjectStatus,
+    ...(row.archivedAt ? { archivedAt: row.archivedAt.toISOString() } : {}),
+    ...(row.sourceProjectId ? { sourceProjectId: row.sourceProjectId } : {}),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -35,7 +39,8 @@ export class PostgresProjectRepository implements ProjectRepository {
 
   async create(identity: IdentityContext, input: ProjectInput, idempotencyKey: string): Promise<Project> {
     return this.database.transaction(async (transaction) => {
-      await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${`${identity.tenantId}:${idempotencyKey}`}))`);
+      const requestKey = `create:${idempotencyKey}`;
+      await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${`${identity.tenantId}:${requestKey}`}))`);
       const [existingRequest] = await transaction
         .select({ project: projectsTable })
         .from(projectIdempotencyTable)
@@ -43,7 +48,7 @@ export class PostgresProjectRepository implements ProjectRepository {
         .where(
           and(
             eq(projectIdempotencyTable.tenantId, identity.tenantId),
-            eq(projectIdempotencyTable.idempotencyKey, idempotencyKey),
+            eq(projectIdempotencyTable.idempotencyKey, requestKey),
           ),
         )
         .limit(1);
@@ -64,7 +69,7 @@ export class PostgresProjectRepository implements ProjectRepository {
       await Promise.all([
         transaction.insert(projectIdempotencyTable).values({
           tenantId: identity.tenantId,
-          idempotencyKey,
+          idempotencyKey: requestKey,
           projectId,
         }),
         transaction.insert(auditEventsTable).values({
@@ -83,11 +88,11 @@ export class PostgresProjectRepository implements ProjectRepository {
     });
   }
 
-  async list(identity: IdentityContext): Promise<Project[]> {
+  async list(identity: IdentityContext, status: ProjectStatus = "active"): Promise<Project[]> {
     const rows = await this.database
       .select()
       .from(projectsTable)
-      .where(eq(projectsTable.tenantId, identity.tenantId))
+      .where(and(eq(projectsTable.tenantId, identity.tenantId), eq(projectsTable.status, status)))
       .orderBy(desc(projectsTable.createdAt));
     return rows.map(toProject);
   }
@@ -112,6 +117,62 @@ export class PostgresProjectRepository implements ProjectRepository {
         idempotencyKey: null,
       });
       return toProject(updated);
+    });
+  }
+
+  async archive(identity: IdentityContext, projectId: string): Promise<Project> {
+    return this.database.transaction(async (transaction) => {
+      const now = new Date();
+      const [archived] = await transaction.update(projectsTable)
+        .set({ status: "archived", archivedAt: now, updatedAt: now })
+        .where(and(eq(projectsTable.id, projectId), eq(projectsTable.tenantId, identity.tenantId), eq(projectsTable.status, "active")))
+        .returning();
+      if (archived) {
+        await transaction.insert(auditEventsTable).values({
+          id: randomUUID(), tenantId: identity.tenantId, actorIssuer: identity.issuer,
+          actorSubject: identity.subjectId, action: "project.archived", resourceType: "project",
+          resourceId: projectId, correlationId: identity.correlationId ?? randomUUID(), idempotencyKey: null,
+        });
+        return toProject(archived);
+      }
+      const [existing] = await transaction.select().from(projectsTable)
+        .where(and(eq(projectsTable.id, projectId), eq(projectsTable.tenantId, identity.tenantId))).limit(1);
+      if (!existing) throw new ProjectNotFoundError();
+      return toProject(existing);
+    });
+  }
+
+  async duplicate(identity: IdentityContext, projectId: string, idempotencyKey: string): Promise<Project> {
+    return this.database.transaction(async (transaction) => {
+      const requestKey = `duplicate:${projectId}:${idempotencyKey}`;
+      await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${`${identity.tenantId}:${requestKey}`}))`);
+      const [existingRequest] = await transaction.select({ project: projectsTable })
+        .from(projectIdempotencyTable)
+        .innerJoin(projectsTable, eq(projectIdempotencyTable.projectId, projectsTable.id))
+        .where(and(eq(projectIdempotencyTable.tenantId, identity.tenantId), eq(projectIdempotencyTable.idempotencyKey, requestKey)))
+        .limit(1);
+      if (existingRequest) return toProject(existingRequest.project);
+
+      const [original] = await transaction.select().from(projectsTable)
+        .where(and(eq(projectsTable.id, projectId), eq(projectsTable.tenantId, identity.tenantId))).limit(1);
+      if (!original) throw new ProjectNotFoundError();
+      const duplicateId = randomUUID();
+      const [duplicate] = await transaction.insert(projectsTable).values({
+        id: duplicateId, tenantId: identity.tenantId, createdByIssuer: identity.issuer,
+        createdBySubject: identity.subjectId, concurso: original.concurso, cargo: original.cargo,
+        area: original.area, status: "active", sourceProjectId: original.id,
+      }).returning();
+      if (!duplicate) throw new Error("Project duplicate insert did not return a row");
+      await Promise.all([
+        transaction.insert(projectIdempotencyTable).values({ tenantId: identity.tenantId, idempotencyKey: requestKey, projectId: duplicateId }),
+        transaction.insert(auditEventsTable).values({
+          id: randomUUID(), tenantId: identity.tenantId, actorIssuer: identity.issuer,
+          actorSubject: identity.subjectId, action: "project.duplicated", resourceType: "project",
+          resourceId: duplicateId, sourceProjectId: original.id,
+          correlationId: identity.correlationId ?? randomUUID(), idempotencyKey,
+        }),
+      ]);
+      return toProject(duplicate);
     });
   }
 }

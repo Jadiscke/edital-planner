@@ -107,15 +107,15 @@ The repository currently provides the foundations for the larger product:
 | Area | Available today |
 | --- | --- |
 | Public experience | Static Astro marketing site with an accessible editorial design |
-| Product application | React/Vite account and first-project experience |
+| Product application | React/Vite project lifecycle, edital upload and evidence tree, material-index review, accessible async progress, and reload restoration |
 | API | NestJS/Fastify project and edital operations, OpenAPI contract, PostgreSQL persistence, and tenant authorization |
 | Authentication | Standards-based OIDC backend-for-frontend flow with server-side, revocable sessions |
 | Documents | Private S3-compatible upload, immutable versions, Redis/BullMQ jobs, recoverable worker states, and status UI |
 | Domain | Project and document rules, shared Zod contracts, idempotency, and tenant isolation |
-| AI | Structured edital verticalization, material-index extraction, and mapping suggestions through OpenRouter |
+| AI | Local-first PDF parsing plus structured edital verticalization, multimodal material-index extraction, and mapping suggestions through OpenRouter |
 | Validation | Unit, contract, HTTP, UI, integration, journey, and optional live-provider tests |
 
-Document extraction/verticalization after the upload worker, the full review workflow, study-plan generator, task execution, analytics, benchmarking, billing, and privacy portals remain roadmap work unless represented by newer code or decision records.
+Association review, the study-plan generator, task execution, analytics, benchmarking, billing, and privacy portals remain roadmap work unless represented by newer code or decision records.
 
 ## Repository structure
 
@@ -234,6 +234,8 @@ pnpm ai:associate ./input-association.json
 
 See [`packages/ai/README.md`](packages/ai/README.md) for input contracts, privacy defaults, audit output, and live-test options.
 
+For the complete local topology, privacy gates, browser QA journeys, reload behavior, and troubleshooting, see [`docs/operations/qa-local.md`](docs/operations/qa-local.md).
+
 ## Quality checks
 
 ```bash
@@ -271,6 +273,8 @@ Open product decisions—including default reading speed, review intervals, task
 - [`docs/adr/0001-stack-tecnologica-inicial.md`](docs/adr/0001-stack-tecnologica-inicial.md) — initial technology choices
 - [`docs/adr/0002-openrouter-como-gateway-de-ia.md`](docs/adr/0002-openrouter-como-gateway-de-ia.md) — OpenRouter gateway decision
 - [`docs/adr/0003-landing-na-raiz-e-aplicacao-em-app.md`](docs/adr/0003-landing-na-raiz-e-aplicacao-em-app.md) — public landing and `/app/*` routing boundary
+- [`docs/adr/0004-extracao-automatica-de-indice-como-processing-job.md`](docs/adr/0004-extracao-automatica-de-indice-como-processing-job.md) — asynchronous material-index extraction and UX contract
+- [`docs/operations/qa-local.md`](docs/operations/qa-local.md) — local OpenRouter setup, QA journeys, and troubleshooting
 - [`docs/security/technology-vulnerability-review.md`](docs/security/technology-vulnerability-review.md) — security review and supported-version floors
 - [`docs/system-design/index.html`](docs/system-design/index.html) — navigable system-design overview
 

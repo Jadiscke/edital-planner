@@ -12,9 +12,9 @@ export class AiConfigurationError extends Error {
   }
 }
 
-const booleanFromEnvironment = z
+const booleanFromEnvironment = (defaultValue: "true" | "false") => z
   .enum(["true", "false"])
-  .default("true")
+  .default(defaultValue)
   .transform((value) => value === "true");
 
 const integerFromEnvironment = (defaultValue: string, minimum: number) =>
@@ -47,14 +47,16 @@ const environmentSchema = z.object({
       typeof value === "string" && value.trim() === "" ? undefined : value,
     z.url().optional(),
   ),
-  OPENROUTER_ZDR: booleanFromEnvironment,
+  OPENROUTER_ZDR: booleanFromEnvironment("true"),
+  OPENROUTER_DOCUMENT_TRANSFER_APPROVED: booleanFromEnvironment("false"),
+  LOCAL_PDF_PARSING_APPROVED: booleanFromEnvironment("false"),
   OPENROUTER_DATA_COLLECTION: z.enum(["allow", "deny"]).default("deny"),
   OPENROUTER_TIMEOUT_MS: integerFromEnvironment("60000", 1),
-  OPENROUTER_MAX_RETRIES: integerFromEnvironment("2", 0),
+  OPENROUTER_MAX_RETRIES: integerFromEnvironment("0", 0),
   OPENROUTER_MAX_TOKENS: integerFromEnvironment("8192", 1),
   OPENROUTER_PDF_ENGINE: z
     .enum(["native", "cloudflare-ai", "mistral-ocr"])
-    .default("mistral-ocr"),
+    .default("cloudflare-ai"),
 });
 
 export interface OpenRouterConfig {
@@ -66,6 +68,8 @@ export interface OpenRouterConfig {
   readonly maxRetries: number;
   readonly maxTokens: number;
   readonly models: readonly string[];
+  readonly documentTransferApproved: boolean;
+  readonly localPdfParsingApproved: boolean;
   readonly pdfEngine: "native" | "cloudflare-ai" | "mistral-ocr";
   readonly timeoutMs: number;
   readonly zeroDataRetention: boolean;
@@ -75,6 +79,8 @@ export interface AiConfigurationDiagnostic {
   readonly baseUrl: string;
   readonly dataCollection: "allow" | "deny";
   readonly models: readonly string[];
+  readonly documentTransferApproved: boolean;
+  readonly localPdfParsingApproved: boolean;
   readonly zeroDataRetention: boolean;
 }
 
@@ -109,6 +115,8 @@ export function loadOpenRouterConfig(
     maxRetries: parsed.OPENROUTER_MAX_RETRIES,
     maxTokens: parsed.OPENROUTER_MAX_TOKENS,
     models,
+    documentTransferApproved: parsed.OPENROUTER_DOCUMENT_TRANSFER_APPROVED,
+    localPdfParsingApproved: parsed.LOCAL_PDF_PARSING_APPROVED,
     pdfEngine: parsed.OPENROUTER_PDF_ENGINE,
     timeoutMs: parsed.OPENROUTER_TIMEOUT_MS,
     zeroDataRetention: parsed.OPENROUTER_ZDR,
@@ -122,6 +130,8 @@ export function toConfigurationDiagnostic(
     baseUrl: config.baseUrl,
     dataCollection: config.dataCollection,
     models: config.models,
+    documentTransferApproved: config.documentTransferApproved,
+    localPdfParsingApproved: config.localPdfParsingApproved,
     zeroDataRetention: config.zeroDataRetention,
   };
 }

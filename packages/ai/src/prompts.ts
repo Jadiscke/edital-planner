@@ -9,6 +9,8 @@ REGRAS DE SEGURANÇA E QUALIDADE:
 - Extraia somente conteúdo sustentado por evidência literal da fonte.
 - Preserve a redação original e forneça também uma forma normalizada.
 - Toda matéria, tópico e subtópico deve ter página, trecho e confiança entre 0 e 1.
+- Detecte opções de prova identificadas como cargo, emprego, função, posto de trabalho, perfil, especialidade, área, área de atuação, ênfase, opção/código de opção, bloco temático ou eixo temático.
+- Registre as opções em examOptions. Em cada matéria, use examOptionIds vazio quando ela for comum a todas as opções; caso contrário, informe as opções às quais se aplica.
 - Use boundingBox null quando coordenadas verificáveis não estiverem disponíveis.
 - Copie documentVersionId exatamente dos metadados fornecidos.
 - Não aprove conteúdo. Ambiguidades devem aparecer em warnings.
@@ -41,4 +43,3 @@ REGRAS DE SEGURANÇA E QUALIDADE:
 - Responda somente no JSON exigido pelo schema.`,
   },
 } as const;
-

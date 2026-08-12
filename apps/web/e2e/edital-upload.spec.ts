@@ -13,7 +13,9 @@ async function createProject(page: Page) {
   await expect(page.getByText("Projeto criado. Sua trilha já está salva.")).toBeVisible();
 }
 
-test("candidate uploads a valid PDF, follows processing and recovers status after reload", async ({ page }) => {
+test("candidate uploads a valid PDF, follows processing and recovers status after reload", async ({ page }, testInfo) => {
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });
   await createProject(page);
   await page.getByLabel("Arquivo do edital em PDF").setInputFiles({
     name: "edital-dataprev.pdf",
@@ -22,9 +24,21 @@ test("candidate uploads a valid PDF, follows processing and recovers status afte
   });
   await page.getByRole("button", { name: "Enviar Edital" }).click();
 
-  await expect(page.getByText("Edital pronto para verticalização.")).toBeVisible();
+  await expect(page.getByText("Edital verticalizado com evidência.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Árvore do edital" })).toBeVisible();
+  await page.getByRole("button", { name: /Língua Portuguesa/ }).click();
+  await expect(page.getByText("LÍNGUA PORTUGUESA: compreensão e interpretação de textos.")).toBeVisible();
+  await expect(page.getByText("Página 14")).toBeVisible();
+  const desktop = await page.screenshot({ fullPage: true, path: testInfo.outputPath("verticalization-evidence-desktop.png") });
+  await testInfo.attach("verticalization-evidence-desktop", { body: desktop, contentType: "image/png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const widths = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, page: document.documentElement.scrollWidth }));
+  expect(widths.page).toBeLessThanOrEqual(widths.viewport);
+  await expect(page.getByRole("heading", { name: "Margem de evidência" })).toBeVisible();
   await page.reload();
-  await expect(page.getByText("Edital pronto para verticalização.")).toBeVisible();
+  await expect(page.getByText("Edital verticalizado com evidência.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Árvore do edital" })).toBeVisible();
+  expect(consoleErrors).toEqual([]);
 });
 
 test("candidate receives actionable guidance for a protected PDF", async ({ page }) => {

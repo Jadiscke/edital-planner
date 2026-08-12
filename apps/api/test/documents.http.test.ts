@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { InMemoryDocumentPipeline } from "../../../packages/domain/src/documents.ts";
 import { InMemoryProjectRepository } from "../../../packages/domain/src/projects.ts";
@@ -6,7 +6,7 @@ import { createApi } from "../src/app.ts";
 import { InMemoryMembershipResolver } from "../src/authorization.ts";
 import { InMemorySessionStore } from "../src/sessions.ts";
 
-function testApi(documents = new InMemoryDocumentPipeline()) {
+function testApi(documents = new InMemoryDocumentPipeline(), testEditals?: Parameters<typeof createApi>[0]["testEditals"]) {
   const memberships = new InMemoryMembershipResolver();
   memberships.allow("https://issuer.test", "candidate-a", "tenant-a");
   memberships.allow("https://issuer.test", "candidate-b", "tenant-b");
@@ -24,12 +24,41 @@ function testApi(documents = new InMemoryDocumentPipeline()) {
       subjectId: token === "outsider" ? "candidate-b" : "candidate-a",
       requestedTenantId: token === "outsider" ? "tenant-b" : "tenant-a",
     }),
+    ...(testEditals ? { testEditals } : {}),
   });
 }
 
 describe("edital upload HTTP contract", () => {
   const activeApps: Awaited<ReturnType<typeof createApi>>[] = [];
   afterEach(async () => Promise.all(activeApps.splice(0).map((app) => app.close())));
+
+  it("lists and downloads only the configured local test editals", async () => {
+    const bytes = Buffer.from("%PDF-1.7\nfixture oficial\n%%EOF");
+    const app = await testApi(new InMemoryDocumentPipeline(), {
+      list: () => [{
+        id: "bndes-2024",
+        label: "BNDES 2024",
+        filename: "bndes-2024.pdf",
+        organization: "BNDES",
+        structure: "Cargo único com várias ênfases",
+        sourceUrl: "https://www.bndes.gov.br/edital.pdf",
+      }],
+      load: async (id) => id === "bndes-2024" ? bytes : undefined,
+    });
+    activeApps.push(app);
+
+    const list = await app.inject({ method: "GET", url: "/development/test-editals", headers: { authorization: "Bearer token" } });
+    expect(list.statusCode).toBe(200);
+    expect(list.json()).toEqual([expect.objectContaining({ id: "bndes-2024", structure: "Cargo único com várias ênfases" })]);
+
+    const download = await app.inject({ method: "GET", url: "/development/test-editals/bndes-2024", headers: { authorization: "Bearer token" } });
+    expect(download.statusCode).toBe(200);
+    expect(download.headers["content-type"]).toContain("application/pdf");
+    expect(download.headers["content-disposition"]).toContain("bndes-2024.pdf");
+    expect(download.rawPayload).toEqual(bytes);
+
+    expect((await app.inject({ method: "GET", url: "/development/test-editals/inexistente", headers: { authorization: "Bearer token" } })).statusCode).toBe(404);
+  });
 
   it("creates one immutable document version and one observable ProcessingJob", async () => {
     const documents = new InMemoryDocumentPipeline();
@@ -84,6 +113,33 @@ describe("edital upload HTTP contract", () => {
       headers: { authorization: "Bearer outsider" },
     });
     expect(concealed.statusCode).toBe(404);
+  });
+
+  it("forwards the requested local processing mode to the document pipeline", async () => {
+    const documents = new InMemoryDocumentPipeline();
+    const upload = vi.spyOn(documents, "upload");
+    const app = await testApi(documents);
+    activeApps.push(app);
+    const project = await app.inject({
+      method: "POST", url: "/projects",
+      headers: { authorization: "Bearer token", "idempotency-key": "project-processing-mode" },
+      payload: { concurso: "DATAPREV", cargo: "Analista", area: "Tecnologia" },
+    });
+
+    const response = await app.inject({
+      method: "POST", url: `/projects/${project.json().id}/editais`,
+      headers: {
+        authorization: "Bearer token", "content-type": "application/pdf",
+        "idempotency-key": "upload-processing-mode", "x-processing-mode": "full",
+      },
+      payload: Buffer.from("%PDF-1.7\n%%EOF"),
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(upload).toHaveBeenCalledWith(expect.objectContaining({
+      processingMode: "full",
+      contestHints: { name: "DATAPREV", role: "Analista", area: "Tecnologia" },
+    }));
   });
 
   it.each([
@@ -159,6 +215,17 @@ describe("edital upload HTTP contract", () => {
     expect(await failedPipeline.getJob({ issuer: "https://issuer.test", subjectId: "candidate-a", tenantId: "tenant-a" }, failure.job.id)).toMatchObject({
       status: "failed_recoverable",
       errorCode: "scanner_unavailable",
+    });
+
+    const invalidPipeline = new InMemoryDocumentPipeline();
+    const invalid = await invalidPipeline.upload({
+      identity: { issuer: "https://issuer.test", subjectId: "candidate-a", tenantId: "tenant-a" },
+      projectId: project.json().id, idempotencyKey: "upload-invalid-output", filename: "edital.pdf", bytes: Buffer.from("%PDF-1.7\n%%EOF"),
+    });
+    await invalidPipeline.start(invalid.job.id);
+    await invalidPipeline.rejectInvalidOutput(invalid.job.id);
+    expect(await invalidPipeline.getJob({ issuer: "https://issuer.test", subjectId: "candidate-a", tenantId: "tenant-a" }, invalid.job.id)).toMatchObject({
+      status: "failed_invalid_output", errorCode: "verticalization_schema_invalid",
     });
   });
 });

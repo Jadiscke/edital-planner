@@ -108,6 +108,41 @@ describe("projects HTTP contract", () => {
     expect(foreignUpdate.statusCode).toBe(404);
   });
 
+  it("archives and duplicates projects through tenant-safe public commands", async () => {
+    const app = await testApi();
+    activeApps.push(app);
+    const created = await app.inject({
+      method: "POST", url: "/projects",
+      headers: { authorization: "Bearer token-a", "idempotency-key": "lifecycle-original" },
+      payload: { concurso: "BACEN", cargo: "Analista", area: "Tecnologia" },
+    });
+    const projectId = created.json().id;
+
+    const archived = await app.inject({ method: "POST", url: `/projects/${projectId}/archive`, headers: { authorization: "Bearer token-a" } });
+    const active = await app.inject({ method: "GET", url: "/projects", headers: { authorization: "Bearer token-a" } });
+    const archive = await app.inject({ method: "GET", url: "/projects?status=archived", headers: { authorization: "Bearer token-a" } });
+    const foreignDuplicate = await app.inject({
+      method: "POST", url: `/projects/${projectId}/duplicates`,
+      headers: { authorization: "Bearer token-b", "idempotency-key": "foreign-duplicate" },
+    });
+    const foreignArchive = await app.inject({
+      method: "POST", url: `/projects/${projectId}/archive`, headers: { authorization: "Bearer token-b" },
+    });
+    const duplicate = await app.inject({
+      method: "POST", url: `/projects/${projectId}/duplicates`,
+      headers: { authorization: "Bearer token-a", "idempotency-key": "owner-duplicate" },
+    });
+
+    expect(archived.statusCode).toBe(200);
+    expect(active.json()).toEqual([]);
+    expect(archive.json()).toEqual([archived.json()]);
+    expect(foreignDuplicate.statusCode).toBe(404);
+    expect(foreignArchive.statusCode).toBe(404);
+    expect(duplicate.statusCode).toBe(201);
+    expect(duplicate.json()).toMatchObject({ status: "active", sourceProjectId: projectId });
+    expect(duplicate.json().id).not.toBe(projectId);
+  });
+
   it("serves the OpenAPI 3.1 contract", async () => {
     const app = await testApi();
     activeApps.push(app);

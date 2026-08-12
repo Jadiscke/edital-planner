@@ -2,10 +2,11 @@ export {
   AiConfigurationError,
   type AiConfigurationDiagnostic,
 } from "./config.ts";
-export { createAiService, type AiService } from "./service.ts";
+export { createAiService, DocumentProcessingNotApprovedError, type AiService } from "./service.ts";
 export {
   OpenRouterHttpError,
   OpenRouterResponseError,
+  OpenRouterStructuredOutputError,
   type AiTaskAudit,
   type AiTaskResult,
   type AiUsage,

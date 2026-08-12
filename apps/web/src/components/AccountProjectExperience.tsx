@@ -1,6 +1,11 @@
+import { useState } from "react";
+
+import type { VerticalizationTree as VerticalizationTreeData } from "../state.ts";
 import { EditalSpine } from "./EditalSpine.tsx";
 import { EditalUpload } from "./EditalUpload.tsx";
 import { ProjectComposer } from "./ProjectComposer.tsx";
+import { VerticalizationTree } from "./VerticalizationTree.tsx";
+import { MaterialIndexWorkspace } from "./MaterialIndexWorkspace.tsx";
 
 export function AccountLogin({ onLogin, error, status }: { onLogin: () => void; error: string; status: string }) {
   return (
@@ -24,6 +29,7 @@ export function AccountLogin({ onLogin, error, status }: { onLogin: () => void; 
 }
 
 export function ProjectWorkspace() {
+  const [verticalization, setVerticalization] = useState<VerticalizationTreeData>();
   return (
     <main id="main" className="workspace project-workspace">
       <section className="form-intro">
@@ -45,8 +51,10 @@ export function ProjectWorkspace() {
           <h2>Projetos</h2>
           <ProjectComposer.ProjectShelf />
         </div>
-        <EditalUpload />
+        <EditalUpload onVerticalization={setVerticalization} />
       </aside>
+      {verticalization ? <div className="verticalization-stage"><VerticalizationTree tree={verticalization} /></div> : null}
+      <MaterialIndexWorkspace />
     </main>
   );
 }
