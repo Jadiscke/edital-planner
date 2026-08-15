@@ -17,6 +17,7 @@ interface PipelineOptions {
   s3: S3Client;
   bucket: string;
   queue?: DocumentJobQueue;
+  validateAiConfiguration?: () => void | Promise<void>;
 }
 
 export interface DocumentJobQueue {
@@ -75,6 +76,9 @@ function toAcceptedDocument(row: PersistedUploadRow): AcceptedDocument {
 }
 
 function toJob(row: PersistedJobRow): ProcessingJob {
+  const reviewReasons = row.error_code?.startsWith("human_review:")
+    ? row.error_code.slice("human_review:".length).split(",").filter(Boolean) as ProcessingJob["reviewReasons"]
+    : undefined;
   return {
     id: row.id,
     kind: "document_verticalization",
@@ -82,7 +86,8 @@ function toJob(row: PersistedJobRow): ProcessingJob {
     projectId: row.project_id,
     status: row.status,
     correlationId: row.correlation_id,
-    ...(row.error_code ? { errorCode: row.error_code } : {}),
+    ...(row.error_code && !reviewReasons ? { errorCode: row.error_code } : {}),
+    ...(reviewReasons?.length ? { reviewReasons } : {}),
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -112,6 +117,7 @@ export class PostgresS3DocumentPipeline implements DocumentPipeline {
     filename: string;
     bytes: Uint8Array;
   }): Promise<AcceptedDocument> {
+    await this.options.validateAiConfiguration?.();
     validatePdf(input.bytes);
     const client = await this.options.pool.connect();
     let objectKey: string | undefined;

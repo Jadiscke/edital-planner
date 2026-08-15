@@ -18,6 +18,7 @@ const pool = new Pool({
 await assertRuntimeDatabaseRole(pool);
 const infrastructure = createDocumentInfrastructure(process.env);
 const aiService = createAiService(process.env);
+const aiConfiguration = await aiService.checkConfiguration();
 const worker = startDocumentWorker({
   connection: infrastructure.connection,
   queueName: infrastructure.queueName,
@@ -28,6 +29,10 @@ const worker = startDocumentWorker({
   verticalizations: new PostgresVerticalizationRepository(pool),
   materialIndexExtractor: createMaterialIndexExtractor(aiService),
   materials: new PostgresMaterialRepository(pool),
+  reviewPolicy: {
+    minimumEvidenceConfidence: aiConfiguration.minimumEvidenceConfidence,
+    maxCostUsd: aiConfiguration.maxCostUsd,
+  },
 });
 
 async function shutdown() {

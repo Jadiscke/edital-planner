@@ -2,7 +2,24 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { IdentityContext } from "./projects.ts";
 
-export type ProcessingJobStatus = "pending" | "processing" | "completed" | "failed_recoverable" | "failed_invalid_output";
+export type ProcessingJobStatus = "pending" | "processing" | "completed" | "needs_review" | "failed_recoverable" | "failed_invalid_output";
+export type HumanReviewReason = "low_evidence" | "cost_limit_exceeded" | "cost_unavailable";
+
+export interface ProcessingJobInference {
+  requestId: string;
+  model: string;
+  provider: string | null;
+  promptVersion: string;
+  durationMs: number;
+  usage: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    cachedTokens: number;
+    reasoningTokens: number;
+    cost: number | null;
+  };
+}
 
 export interface DocumentVersion {
   id: string;
@@ -25,6 +42,8 @@ export interface ProcessingJob {
   status: ProcessingJobStatus;
   correlationId: string;
   errorCode?: string;
+  reviewReasons?: HumanReviewReason[];
+  inference?: ProcessingJobInference;
   createdAt: string;
   updatedAt: string;
 }
@@ -139,8 +158,12 @@ export class InMemoryDocumentPipeline implements DocumentPipeline {
     this.transition(jobId, "processing");
   }
 
-  async complete(jobId: string): Promise<void> {
-    this.transition(jobId, "completed");
+  async complete(jobId: string, inference?: ProcessingJobInference): Promise<void> {
+    this.transition(jobId, "completed", undefined, inference ? { inference } : {});
+  }
+
+  async requireReview(jobId: string, reviewReasons: HumanReviewReason[], inference: ProcessingJobInference): Promise<void> {
+    this.transition(jobId, "needs_review", undefined, { reviewReasons, inference });
   }
 
   async fail(jobId: string, errorCode: string): Promise<void> {
@@ -151,18 +174,25 @@ export class InMemoryDocumentPipeline implements DocumentPipeline {
     this.transition(jobId, "failed_invalid_output", "verticalization_schema_invalid");
   }
 
-  private transition(jobId: string, status: ProcessingJobStatus, errorCode?: string): void {
+  private transition(
+    jobId: string,
+    status: ProcessingJobStatus,
+    errorCode?: string,
+    details: Pick<ProcessingJob, "reviewReasons" | "inference"> = {},
+  ): void {
     const job = this.jobs.get(jobId);
     if (!job) throw new Error("ProcessingJob not found");
     const allowed =
       (job.status === "pending" && (status === "processing" || status === "failed_recoverable"))
-      || (job.status === "processing" && (status === "completed" || status === "failed_recoverable" || status === "failed_invalid_output"));
+      || (job.status === "processing" && (status === "completed" || status === "needs_review" || status === "failed_recoverable" || status === "failed_invalid_output"));
     if (!allowed) throw new Error(`Invalid ProcessingJob transition: ${job.status} -> ${status}`);
     this.jobs.set(jobId, {
       ...job,
       status,
       updatedAt: new Date().toISOString(),
       ...(errorCode ? { errorCode } : {}),
+      ...(details.reviewReasons ? { reviewReasons: details.reviewReasons } : {}),
+      ...(details.inference ? { inference: details.inference } : {}),
     });
   }
 

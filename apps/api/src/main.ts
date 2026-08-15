@@ -1,5 +1,5 @@
 import { Pool } from "pg";
-import { createAiService } from "../../../packages/ai/src/index.ts";
+import { loadOpenRouterConfig } from "../../../packages/ai/src/config.ts";
 
 import { createApi } from "./app.ts";
 import { createDiscoveredOidcBff } from "./oidc.ts";
@@ -49,7 +49,6 @@ const allowedOrigins = requiredEnvironment("WEB_ORIGINS").split(",").map((origin
 const proxySetting = requiredEnvironment("TRUSTED_PROXY_IPS");
 const trustedProxyIps = proxySetting === "none" ? [] : proxySetting.split(",").map((address) => address.trim()).filter(Boolean);
 const documentInfrastructure = createDocumentInfrastructure(process.env);
-const ai = createAiService(process.env);
 const documentQueue = new BullMqDocumentQueue(documentInfrastructure);
 const materials = new PostgresMaterialRepository(pool);
 const callbackUrl = new URL(requiredEnvironment("OIDC_CALLBACK_URL"));
@@ -62,6 +61,7 @@ const api = await createApi({
     s3: documentInfrastructure.s3,
     bucket: documentInfrastructure.bucket,
     queue: documentQueue,
+    validateAiConfiguration: () => { loadOpenRouterConfig(process.env); },
   }),
   verticalizations: new PostgresVerticalizationRepository(pool),
   materials,
@@ -71,6 +71,7 @@ const api = await createApi({
     bucket: documentInfrastructure.bucket,
     materials,
     queue: documentQueue,
+    validateAiConfiguration: () => { loadOpenRouterConfig(process.env); },
   }),
   sessions: new PostgresSessionStore(pool),
   memberships: new PostgresMembershipResolver(pool),

@@ -24,7 +24,7 @@ function fixtureAiService() {
       audit: {
         requestId: "fixture-generation", promptVersion: "verticalize-edital@1.0.0",
         model: "fixture/schema-validator", provider: null, durationMs: 12,
-        usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, cachedTokens: 0, reasoningTokens: 0, cost: null },
+        usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, cachedTokens: 0, reasoningTokens: 0, cost: 0 },
       },
     }),
   };

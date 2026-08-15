@@ -5,11 +5,12 @@ import { Queue, Worker, type ConnectionOptions } from "bullmq";
 import type { Pool } from "pg";
 
 import { validatePdf } from "../../../../packages/domain/src/documents.ts";
-import { OpenRouterStructuredOutputError, type AiService } from "@planejador/ai";
+import { OpenRouterResponseError, OpenRouterStructuredOutputError, type AiService } from "@planejador/ai";
 import type { VerticalizationRepository } from "../../../../packages/domain/src/verticalizations.ts";
 import { MaterialIndexService, type MaterialIndexSource, type MaterialRepository } from "../../../../packages/domain/src/materials.ts";
 import type { DocumentJobQueue } from "./pipeline.ts";
 import { InvalidVerticalizationOutputError, promoteVerticalization } from "../verticalizations/promotion.ts";
+import { evaluateVerticalizationReview } from "../verticalizations/review-policy.ts";
 import type { MaterialIndexExtractor } from "../material-index-processing.ts";
 
 interface DocumentJobData {
@@ -29,6 +30,7 @@ interface WorkerOptions extends QueueOptions {
   verticalizations: VerticalizationRepository;
   materialIndexExtractor?: MaterialIndexExtractor;
   materials?: MaterialRepository;
+  reviewPolicy?: { minimumEvidenceConfidence: number; maxCostUsd: number };
 }
 
 export class BullMqDocumentQueue implements DocumentJobQueue {
@@ -109,17 +111,36 @@ export function startDocumentWorker(options: WorkerOptions): Worker<DocumentJobD
           repository: options.verticalizations,
           completion,
         });
+        const decision = evaluateVerticalizationReview({
+          result: completion.data,
+          audit: completion.audit,
+          minimumEvidenceConfidence: options.reviewPolicy?.minimumEvidenceConfidence ?? 0.75,
+          maxCostUsd: options.reviewPolicy?.maxCostUsd ?? 0.25,
+        });
         await options.pool.query(
           `UPDATE processing_jobs
-           SET status = 'completed', error_code = NULL, updated_at = now()
+           SET status = $2, error_code = $3, updated_at = now()
            WHERE id = $1 AND status = 'processing'`,
-          [job.data.jobId],
+          [
+            job.data.jobId,
+            decision.outcome,
+            decision.outcome === "needs_review" ? `human_review:${decision.reasons.join(",")}` : null,
+          ],
         );
       } catch (error) {
         if (error instanceof InvalidVerticalizationOutputError || error instanceof OpenRouterStructuredOutputError) {
           await options.pool.query(
             `UPDATE processing_jobs
              SET status = 'failed_invalid_output', error_code = 'verticalization_schema_invalid', updated_at = now()
+             WHERE id = $1`,
+            [job.data.jobId],
+          );
+          return;
+        }
+        if (error instanceof OpenRouterResponseError && /timed out|timeout|tempo esgotado/i.test(error.message)) {
+          await options.pool.query(
+            `UPDATE processing_jobs
+             SET status = 'failed_recoverable', error_code = 'provider_timeout', updated_at = now()
              WHERE id = $1`,
             [job.data.jobId],
           );

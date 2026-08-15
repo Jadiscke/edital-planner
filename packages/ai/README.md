@@ -52,7 +52,9 @@ O modelo é sempre um identificador do catálogo do OpenRouter. A configuração
 
 `OPENROUTER_FALLBACK_MODELS` recebe slugs separados por vírgula. O pacote envia a lista ordenada pelo parâmetro `models`, permitindo ao próprio OpenRouter escolher o primeiro modelo disponível.
 
-ZDR e `data_collection: deny` são habilitados por padrão. Não os relaxe para documentos reais sem aprovação da política de privacidade.
+`OPENROUTER_MAX_COST_USD` limita o custo aceito por execução e `OPENROUTER_MIN_EVIDENCE_CONFIDENCE` define o piso de confiança de cada item. Resultados acima do custo, abaixo da confiança ou sem contabilização de custo seguem para revisão humana.
+
+ZDR é habilitado por padrão e `data_collection: deny` é obrigatório. A configuração falha antes de criar um job quando uma variável necessária está ausente ou inválida.
 
 ## CLI
 

@@ -28,9 +28,10 @@ export interface ProcessingJob {
   sourceFilename?: string;
   resultVersionId?: string;
   projectId: string;
-  status: "pending" | "processing" | "completed" | "failed_recoverable" | "failed_invalid_output";
+  status: "pending" | "processing" | "completed" | "needs_review" | "failed_recoverable" | "failed_invalid_output";
   correlationId: string;
   errorCode?: string;
+  reviewReasons?: ("low_evidence" | "cost_limit_exceeded" | "cost_unavailable")[];
   createdAt: string;
   updatedAt: string;
 }

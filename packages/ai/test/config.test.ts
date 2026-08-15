@@ -63,4 +63,28 @@ test("PDF processing defaults avoid paid OCR and automatic paid retries", () => 
 
   assert.equal(config.pdfEngine, "cloudflare-ai");
   assert.equal(config.maxRetries, 0);
+  assert.equal(config.maxCostUsd, 0.25);
+  assert.equal(config.minimumEvidenceConfidence, 0.75);
+});
+
+test("invalid safety configuration reports every variable before inference", () => {
+  assert.throws(
+    () => loadOpenRouterConfig({
+      OPENROUTER_API_KEY: "diagnostic-only",
+      OPENROUTER_PRIMARY_MODEL: "configured/model",
+      OPENROUTER_DATA_COLLECTION: "allow",
+      OPENROUTER_MAX_COST_USD: "zero",
+      OPENROUTER_MIN_EVIDENCE_CONFIDENCE: "1.2",
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AiConfigurationError);
+      assert.deepEqual(error.invalidVariables, [
+        "OPENROUTER_DATA_COLLECTION",
+        "OPENROUTER_MAX_COST_USD",
+        "OPENROUTER_MIN_EVIDENCE_CONFIDENCE",
+      ]);
+      assert.match(error.message, /OPENROUTER_MAX_COST_USD/);
+      return true;
+    },
+  );
 });

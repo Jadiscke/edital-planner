@@ -175,6 +175,34 @@ describe("edital upload journey", () => {
     expect(idempotencyKeys[1]).not.toBe(idempotencyKeys[0]);
   });
 
+  it("explains why an AI result needs human review and keeps job correlation visible", async () => {
+    const jobId = "job-needs-review";
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const path = String(url);
+      if (path.endsWith("/projects") && (!init?.method || init.method === "GET")) return new Response(JSON.stringify([project]), { status: 200 });
+      if (path.includes("/editais")) return new Response(JSON.stringify({
+        documentVersion: { id: "document-review", projectId: project.id, versionNumber: 1, filename: "edital.pdf", sha256: "a".repeat(64), sizeBytes: 18, createdAt: new Date().toISOString() },
+        job: { id: jobId, documentVersionId: "document-review", projectId: project.id, status: "pending", correlationId: "correlation-review", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      }), { status: 201 });
+      if (path.endsWith(`/processing-jobs/${jobId}`)) return new Response(JSON.stringify({
+        id: jobId, documentVersionId: "document-review", projectId: project.id, status: "needs_review",
+        reviewReasons: ["low_evidence", "cost_limit_exceeded"], correlationId: "correlation-review",
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      }), { status: 200 });
+      return new Response(JSON.stringify([]), { status: 200 });
+    });
+    const user = userEvent.setup();
+    render(<App initialAuthenticated />);
+    await user.upload(await screen.findByLabelText("Arquivo do edital em PDF"), new File(["%PDF-1.7\n%%EOF"], "edital.pdf", { type: "application/pdf" }));
+    await user.click(screen.getByRole("button", { name: "Enviar Edital" }));
+
+    expect(await screen.findByText("Revisão humana necessária.")).toBeVisible();
+    expect(screen.getByText(/evidência abaixo do limite/)).toBeVisible();
+    expect(screen.getByText(/custo ficou acima do limite/)).toBeVisible();
+    expect(screen.getByText("correlation-review")).toBeVisible();
+    expect(screen.getByText(/Conteúdo gerado por IA não equivale a aprovação/)).toBeVisible();
+  });
+
   it("clears a stale restored job instead of waiting forever", async () => {
     const staleJobId = "job-from-an-old-local-server";
     localStorage.setItem(`planejador:v1:processing-job:${project.id}`, staleJobId);

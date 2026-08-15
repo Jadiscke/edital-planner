@@ -30,12 +30,17 @@ test("the OpenAPI contract exposes binary edital upload and observable processin
   const upload = projectApiDocument.paths["/projects/{projectId}/editais"].post;
   assert.equal(upload.requestBody.content["application/pdf"].schema.format, "binary");
   assert.ok(upload.parameters.some((item) => item.name === "Idempotency-Key"));
-  assert.deepEqual(Object.keys(upload.responses).sort(), ["201", "400", "401", "403", "404", "422"]);
+  assert.deepEqual(Object.keys(upload.responses).sort(), ["201", "400", "401", "403", "404", "422", "503"]);
   const status = projectApiDocument.paths["/processing-jobs/{jobId}"].get;
   const statusSchema = status.responses["200"].content?.["application/json"].schema as { $ref?: string };
   assert.equal(statusSchema.$ref, "#/components/schemas/ProcessingJob");
   assert.ok(status.responses["404"]);
   assert.ok(projectApiDocument.components.schemas.ProcessingJob.properties.status.enum.includes("failed_invalid_output"));
+  assert.ok(projectApiDocument.components.schemas.ProcessingJob.properties.status.enum.includes("needs_review"));
+  assert.deepEqual(
+    projectApiDocument.components.schemas.ProcessingJob.properties.reviewReasons.items.enum,
+    ["low_evidence", "cost_limit_exceeded", "cost_unavailable"],
+  );
   const verticalization = projectApiDocument.paths["/document-versions/{documentVersionId}/verticalization"].get;
   const verticalizationSchema = verticalization.responses["200"].content?.["application/json"].schema as { $ref?: string };
   assert.equal(verticalizationSchema.$ref, "#/components/schemas/VerticalizationTree");

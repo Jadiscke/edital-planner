@@ -20,6 +20,7 @@ test("structured requests cap completion without sending sampling parameters to 
     const client = new OpenRouterClient({
       apiKey: "test-key", appName: "test", baseUrl: "https://openrouter.test",
       dataCollection: "deny", maxRetries: 0, maxTokens: 128,
+      maxCostUsd: 0.25, minimumEvidenceConfidence: 0.75,
       models: ["openai/reasoning-model"], pdfEngine: "native", timeoutMs: 1_000,
       documentTransferApproved: true, localPdfParsingApproved: false,
       zeroDataRetention: true,
@@ -32,6 +33,12 @@ test("structured requests cap completion without sending sampling parameters to 
     assert.equal("temperature" in requestBody, false);
     assert.equal("max_tokens" in requestBody, false);
     assert.equal(requestBody.max_completion_tokens, 128);
+    assert.deepEqual(requestBody.models, ["openai/reasoning-model"]);
+    expectProviderPolicy(requestBody.provider);
+    assert.deepEqual(requestBody.response_format, {
+      type: "json_schema",
+      json_schema: { name: "test", strict: true, schema: { type: "object" } },
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -49,6 +56,7 @@ test("a timed-out paid request is not submitted again automatically", async () =
     const client = new OpenRouterClient({
       apiKey: "test-key", appName: "test", baseUrl: "https://openrouter.test",
       dataCollection: "deny", maxRetries: 2, maxTokens: 128,
+      maxCostUsd: 0.25, minimumEvidenceConfidence: 0.75,
       models: ["deepseek/deepseek-v4-flash-0731"], pdfEngine: "cloudflare-ai", timeoutMs: 10,
       documentTransferApproved: true, localPdfParsingApproved: false,
       zeroDataRetention: true,
@@ -89,6 +97,7 @@ test("PDF parsing uses configured fallbacks and never promotes annotations from 
     const client = new OpenRouterClient({
       apiKey: "test-key", appName: "test", baseUrl: "https://openrouter.test",
       dataCollection: "deny", maxRetries: 0, maxTokens: 128,
+      maxCostUsd: 0.25, minimumEvidenceConfidence: 0.75,
       models: ["deepseek/deepseek-v4-flash-0731", "openai/gpt-5.6-luna"], pdfEngine: "cloudflare-ai", timeoutMs: 1_000,
       documentTransferApproved: true, localPdfParsingApproved: false,
       zeroDataRetention: true,
@@ -98,11 +107,20 @@ test("PDF parsing uses configured fallbacks and never promotes annotations from 
       (error) => error instanceof OpenRouterHttpError && error.status === 502,
     );
     assert.deepEqual(requestBody?.models, ["deepseek/deepseek-v4-flash-0731", "openai/gpt-5.6-luna"]);
-    assert.equal((requestBody?.provider as { allow_fallbacks?: boolean }).allow_fallbacks, true);
+    expectProviderPolicy(requestBody?.provider);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
+
+function expectProviderPolicy(provider: unknown): void {
+  assert.deepEqual(provider, {
+    allow_fallbacks: true,
+    data_collection: "deny",
+    require_parameters: true,
+    zdr: true,
+  });
+}
 
 test("a PDF parsing timeout is reported as an actionable provider timeout", async () => {
   const originalFetch = globalThis.fetch;
@@ -116,6 +134,7 @@ test("a PDF parsing timeout is reported as an actionable provider timeout", asyn
     const client = new OpenRouterClient({
       apiKey: "test-key", appName: "test", baseUrl: "https://openrouter.test",
       dataCollection: "deny", maxRetries: 2, maxTokens: 128,
+      maxCostUsd: 0.25, minimumEvidenceConfidence: 0.75,
       models: ["deepseek/deepseek-v4-flash-0731", "openai/gpt-5.6-luna"], pdfEngine: "cloudflare-ai", timeoutMs: 10,
       documentTransferApproved: true, localPdfParsingApproved: false,
       zeroDataRetention: true,

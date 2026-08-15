@@ -15,6 +15,7 @@ interface PipelineOptions {
   bucket: string;
   materials: MaterialRepository;
   queue?: DocumentJobQueue;
+  validateAiConfiguration?: () => void | Promise<void>;
 }
 
 interface JobRow {
@@ -62,6 +63,7 @@ export class PostgresS3MaterialIndexProcessingPipeline implements MaterialIndexP
   }
 
   async submit(input: Parameters<MaterialIndexProcessingPipeline["submit"]>[0]): Promise<AcceptedMaterialIndexJob> {
+    await this.options.validateAiConfiguration?.();
     const material = await this.service.get(input.identity, input.materialId);
     if (!material) throw new MaterialNotFoundError();
     const existing = await this.existing(input.identity, input.materialId, input.idempotencyKey);

@@ -94,6 +94,16 @@ const errorSchema = {
     fieldErrors: { type: "object", additionalProperties: { type: "string" } },
   },
 } as const;
+const aiConfigurationErrorSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["code", "message", "variables"],
+  properties: {
+    code: { type: "string", const: "ai_configuration_invalid" },
+    message: { type: "string" },
+    variables: { type: "array", items: { type: "string" }, minItems: 1, uniqueItems: true },
+  },
+} as const;
 const json = (schema: object) => ({ "application/json": { schema } });
 const response = (description: string, schema?: object) => ({ description, ...(schema ? { content: json(schema) } : {}) });
 const protectedSecurity = [{ cookieSession: [] }, { oidc: [] }] as const;
@@ -105,9 +115,14 @@ const processingJobSchema = {
     id: { type: "string", format: "uuid" },
     documentVersionId: { type: "string", format: "uuid" },
     projectId: { type: "string", format: "uuid" },
-    status: { type: "string", enum: ["pending", "processing", "completed", "failed_recoverable", "failed_invalid_output"] },
+    status: { type: "string", enum: ["pending", "processing", "completed", "needs_review", "failed_recoverable", "failed_invalid_output"] },
     correlationId: { type: "string", format: "uuid" },
     errorCode: { type: "string" },
+    reviewReasons: {
+      type: "array",
+      items: { type: "string", enum: ["low_evidence", "cost_limit_exceeded", "cost_unavailable"] },
+      uniqueItems: true,
+    },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
   },
@@ -348,6 +363,7 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
             "403": response("Origem não permitida", errorSchema),
             "404": response("Projeto ausente ou pertencente a outro tenant", errorSchema),
             "422": response("PDF inválido, protegido ou acima do limite", errorSchema),
+            "503": response("Configuração de IA ausente ou inválida", aiConfigurationErrorSchema),
           },
         },
       },

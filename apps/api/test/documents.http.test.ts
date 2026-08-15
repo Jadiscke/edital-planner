@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AiConfigurationError } from "@planejador/ai";
 
 import { InMemoryDocumentPipeline } from "../../../packages/domain/src/documents.ts";
 import { InMemoryProjectRepository } from "../../../packages/domain/src/projects.ts";
@@ -140,6 +141,36 @@ describe("edital upload HTTP contract", () => {
       processingMode: "full",
       contestHints: { name: "DATAPREV", role: "Analista", area: "Tecnologia" },
     }));
+  });
+
+  it("returns actionable AI configuration errors before a job is accepted", async () => {
+    class InvalidConfigurationPipeline extends InMemoryDocumentPipeline {
+      override async upload(): Promise<never> {
+        throw new AiConfigurationError([], ["OPENROUTER_DATA_COLLECTION", "OPENROUTER_MAX_COST_USD"]);
+      }
+    }
+    const documents = new InvalidConfigurationPipeline();
+    const app = await testApi(documents);
+    activeApps.push(app);
+    const project = await app.inject({
+      method: "POST", url: "/projects",
+      headers: { authorization: "Bearer token", "idempotency-key": "project-ai-config" },
+      payload: { concurso: "DATAPREV", cargo: "Analista", area: "Tecnologia" },
+    });
+
+    const response = await app.inject({
+      method: "POST", url: `/projects/${project.json().id}/editais`,
+      headers: { authorization: "Bearer token", "content-type": "application/pdf", "idempotency-key": "upload-ai-config" },
+      payload: Buffer.from("%PDF-1.7\n%%EOF"),
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({
+      code: "ai_configuration_invalid",
+      message: "Configuração de IA inválida. Corrija: OPENROUTER_DATA_COLLECTION, OPENROUTER_MAX_COST_USD.",
+      variables: ["OPENROUTER_DATA_COLLECTION", "OPENROUTER_MAX_COST_USD"],
+    });
+    expect(documents.jobCount).toBe(0);
   });
 
   it.each([

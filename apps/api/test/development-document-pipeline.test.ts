@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { OpenRouterResponseError } from "@planejador/ai";
+import { AiConfigurationError, OpenRouterResponseError } from "@planejador/ai";
 
 import { InMemoryVerticalizationRepository } from "../../../packages/domain/src/verticalizations.ts";
 import { DevelopmentDocumentPipeline } from "../src/documents/development-pipeline.ts";
@@ -75,5 +75,58 @@ describe("DevelopmentDocumentPipeline", () => {
 
     await vi.waitFor(async () => expect((await pipeline.getJob(identity, accepted.job.id))?.status).toBe("failed_recoverable"));
     expect(await pipeline.getJob(identity, accepted.job.id)).toMatchObject({ errorCode: "provider_timeout" });
+  });
+
+  it("records audit accounting and pauses unsafe output for human review", async () => {
+    const verticalizations = new InMemoryVerticalizationRepository();
+    const pipeline = new DevelopmentDocumentPipeline({
+      verticalizations,
+      reviewPolicy: { minimumEvidenceConfidence: 0.75, maxCostUsd: 0.25 },
+      aiService: { verticalizeEdital: async (input: { documentVersionId: string }) => ({
+        data: {
+          documentVersionId: input.documentVersionId,
+          contest: { name: "DATAPREV", role: "Analista", area: "Tecnologia" },
+          examOptions: [], warnings: [],
+          subjects: [{
+            originalName: "DIREITO", normalizedName: "Direito", confidence: 0.7,
+            evidence: [{ page: 1, text: "DIREITO", boundingBox: null }], examOptionIds: [], topics: [],
+          }],
+        },
+        audit: {
+          requestId: "generation-review", model: "fallback/resolved", provider: "Provider",
+          promptVersion: "verticalize-edital@1.0.0", durationMs: 80,
+          usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30, cachedTokens: 0, reasoningTokens: 0, cost: 0.01 },
+        },
+      }) } as never,
+    });
+
+    const accepted = await pipeline.upload({
+      identity, projectId: "project-1", idempotencyKey: "upload-review-1", filename: "edital.pdf",
+      bytes: Buffer.from("%PDF-1.7\n%%EOF"), processingMode: "full",
+    });
+
+    await vi.waitFor(async () => expect((await pipeline.getJob(identity, accepted.job.id))?.status).toBe("needs_review"));
+    expect(await pipeline.getJob(identity, accepted.job.id)).toMatchObject({
+      reviewReasons: ["low_evidence"],
+      inference: { requestId: "generation-review", model: "fallback/resolved", usage: { totalTokens: 30, cost: 0.01 } },
+    });
+    expect(await verticalizations.getByDocumentVersion(identity, accepted.documentVersion.id)).toBeDefined();
+  });
+
+  it("rejects invalid AI configuration before creating a document or job", async () => {
+    const pipeline = new DevelopmentDocumentPipeline({
+      verticalizations: new InMemoryVerticalizationRepository(),
+      aiService: {
+        checkConfiguration: async () => { throw new AiConfigurationError(["OPENROUTER_API_KEY"]); },
+        verticalizeEdital: async () => { throw new Error("inference must not run"); },
+      } as never,
+    });
+
+    await expect(pipeline.upload({
+      identity, projectId: "project-1", idempotencyKey: "upload-invalid-config", filename: "edital.pdf",
+      bytes: Buffer.from("%PDF-1.7\n%%EOF"), processingMode: "full",
+    })).rejects.toMatchObject({ missingVariables: ["OPENROUTER_API_KEY"] });
+    expect(pipeline.objectCount).toBe(0);
+    expect(pipeline.jobCount).toBe(0);
   });
 });

@@ -26,7 +26,8 @@ const pool = postgres ? new Pool({ connectionString: postgres.getConnectionUri()
 if (pool) await runMigrations(pool);
 const projects = pool ? new PostgresProjectRepository(pool) : inMemoryProjects;
 const verticalizations = new InMemoryVerticalizationRepository();
-const unavailableAi: Pick<AiService, "verticalizeEdital"> = {
+const unavailableAi: Pick<AiService, "checkConfiguration" | "verticalizeEdital"> = {
+  async checkConfiguration() { throw new Error("Defina OPENROUTER_API_KEY e OPENROUTER_PRIMARY_MODEL para usar o processamento completo."); },
   async verticalizeEdital() { throw new Error("Configure o OpenRouter para usar o processamento completo."); },
 };
 const aiService = process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_PRIMARY_MODEL ? createAiService(process.env) : unavailableAi;
