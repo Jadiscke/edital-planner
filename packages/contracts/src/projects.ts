@@ -17,6 +17,26 @@ export const updateProjectSchema = createProjectSchema.partial().refine(
   "Informe ao menos um campo para atualizar.",
 );
 
+export const billingCheckoutSchema = z.object({
+  planId: z.literal("rota-pro"),
+}).strict();
+
+export const billingPlanSchema = z.object({
+  id: z.literal("rota-pro"), version: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), name: z.string().min(1),
+  priceInCents: z.number().int().nonnegative(), currency: z.literal("BRL"), interval: z.literal("month"),
+  limits: z.object({ activeProjects: z.number().int().nonnegative(), aiDocumentPagesPerMonth: z.number().int().nonnegative() }).strict(),
+  renewsAutomatically: z.boolean(), cancellationTerms: z.string().min(1), capabilities: z.array(z.literal("advanced_planning")),
+}).strict();
+export const billingCatalogSchema = z.array(billingPlanSchema);
+export const billingEntitlementsSchema = z.object({ advancedPlanning: z.boolean() }).strict();
+export const billingCheckoutResponseSchema = z.object({
+  checkoutUrl: z.string().url().refine((value) => {
+    const url = new URL(value);
+    return url.protocol === "https:" && (url.hostname === "stripe.com" || url.hostname.endsWith(".stripe.com"));
+  }),
+}).strict();
+export type BillingPlanContract = z.infer<typeof billingPlanSchema>;
+
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 
@@ -255,6 +275,33 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
           security: [{ cookieSession: [] }],
           responses: { "204": response("Sessão revogada"), "403": response("Origem não permitida", errorSchema) },
         },
+      },
+      "/billing/catalog": {
+        get: { operationId: "listBillingPlans", summary: "Consultar planos e condições publicados", security: protectedSecurity,
+          responses: { "200": response("Catálogo versionado de planos", { type: "array", items: { type: "object", additionalProperties: false, required: ["id","version","name","priceInCents","currency","interval","limits","renewsAutomatically","cancellationTerms","capabilities"], properties: {
+            id: { type: "string", enum: ["rota-pro"] }, version: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" }, name: { type: "string", minLength: 1 }, priceInCents: { type: "integer", minimum: 0 }, currency: { type: "string", enum: ["BRL"] }, interval: { type: "string", enum: ["month"] },
+            limits: { type: "object", additionalProperties: false, required: ["activeProjects", "aiDocumentPagesPerMonth"], properties: { activeProjects: { type: "integer", minimum: 0 }, aiDocumentPagesPerMonth: { type: "integer", minimum: 0 } } },
+            renewsAutomatically: { type: "boolean" }, cancellationTerms: { type: "string", minLength: 1 }, capabilities: { type: "array", items: { type: "string", enum: ["advanced_planning"] }, uniqueItems: true },
+          } } }), "401": response("Sessão ausente", errorSchema) } },
+      },
+      "/billing/checkout": {
+        post: { operationId: "createHostedCheckout", summary: "Iniciar checkout hospedado", security: protectedSecurity, parameters: [idempotencyHeader],
+          requestBody: { required: true, content: json({ type: "object", additionalProperties: false, required: ["planId"], properties: { planId: { type: "string", enum: ["rota-pro"] } } }) },
+          responses: { "201": response("URL HTTPS do checkout hospedado", { type: "object", additionalProperties: false, required: ["checkoutUrl"], properties: { checkoutUrl: { type: "string", format: "uri", pattern: "^https://" } } }), "400": response("Plano ou idempotência inválidos", errorSchema), "401": response("Sessão ausente", errorSchema), "503": response("Provedor indisponível", errorSchema) } },
+      },
+      "/billing/entitlements": {
+        get: { operationId: "getEntitlements", summary: "Consultar acesso efetivo local", security: protectedSecurity,
+          responses: { "200": response("Entitlements efetivos", { type: "object", additionalProperties: false, required: ["advancedPlanning"], properties: { advancedPlanning: { type: "boolean" } } }), "401": response("Sessão ausente", errorSchema) } },
+      },
+      "/billing/restricted/advanced-planning": {
+        get: { operationId: "getAdvancedPlanning", summary: "Exercer autorização de entitlement no backend", security: protectedSecurity,
+          responses: { "200": response("Acesso concedido"), "401": response("Sessão ausente", errorSchema), "403": response("Entitlement ausente", errorSchema) } },
+      },
+      "/billing/webhooks/stripe": {
+        post: { operationId: "receiveStripeWebhook", summary: "Validar e enfileirar evento assinado do Stripe",
+          parameters: [{ name: "Stripe-Signature", in: "header", required: true, schema: { type: "string" } }],
+          requestBody: { required: true, content: json({ type: "object" }) },
+          responses: { "202": response("Evento válido enfileirado"), "400": response("Assinatura, tolerância ou evento inválido", errorSchema), "503": response("Reconciliação indisponível", errorSchema) } },
       },
       "/projects": {
         get: {

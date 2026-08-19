@@ -1,5 +1,6 @@
 import { configureStore } from "@reduxjs/toolkit";
 import { createApi, type BaseQueryFn } from "@reduxjs/toolkit/query/react";
+import { billingCatalogSchema, billingCheckoutResponseSchema, billingEntitlementsSchema, type BillingPlanContract } from "@planejador/contracts";
 import { API_URL } from "./config.ts";
 
 export interface Project {
@@ -51,6 +52,7 @@ export interface MaterialIndexSource {
 }
 export interface MaterialIndexVersion { id: string; materialId: string; versionNumber: number; sourceKind: "manual" | "pdf" | "image"; sourceFilename?: string; pageOffset: number; sources: MaterialIndexSource[]; items: MaterialIndexItem[]; status: "invalid" | "in_review" | "approved"; validationIssues: string[]; createdAt: string; approvedAt?: string }
 export interface Material { id: string; projectId: string; title: string; edition: string; versions: MaterialIndexVersion[]; createdAt: string; updatedAt: string }
+export type BillingPlan = BillingPlanContract;
 
 export interface VerticalizationEvidence { page: number; text: string; boundingBox: { x: number; y: number; width: number; height: number } | null }
 export interface VerticalizationNode { originalName: string; normalizedName: string; confidence: number; evidence: VerticalizationEvidence[] }
@@ -85,7 +87,13 @@ const apiBaseQuery: BaseQueryFn<string | ApiRequest> = async (request, api) => {
       credentials: "include",
     });
     const data = await response.json();
-    return response.ok ? { data } : { error: { status: response.status, data } };
+    if (!response.ok) return { error: { status: response.status, data } };
+    const schema = details.url === "/billing/catalog" ? billingCatalogSchema
+      : details.url === "/billing/entitlements" ? billingEntitlementsSchema
+      : details.url === "/billing/checkout" ? billingCheckoutResponseSchema : undefined;
+    if (!schema) return { data };
+    const parsed = schema.safeParse(data);
+    return parsed.success ? { data: parsed.data } : { error: { status: "PARSING_ERROR", error: "A API retornou dados de billing fora do contrato publicado." } };
   } catch (error) {
     return { error: { status: "FETCH_ERROR", error: error instanceof Error ? error.message : "Request failed" } };
   }
@@ -93,7 +101,7 @@ const apiBaseQuery: BaseQueryFn<string | ApiRequest> = async (request, api) => {
 
 export const projectsApi = createApi({
   reducerPath: "projectsApi",
-  tagTypes: ["Project", "Material"],
+  tagTypes: ["Project", "Material", "Entitlement"],
   baseQuery: apiBaseQuery,
   endpoints: (build) => ({
     listProjects: build.query<Project[], Project["status"] | void>({
@@ -167,6 +175,11 @@ export const projectsApi = createApi({
     approveMaterialIndex: build.mutation<MaterialIndexVersion, { materialId: string; versionId: string; idempotencyKey: string }>({
       query: ({ materialId, versionId, idempotencyKey }) => ({ url: `/materials/${materialId}/index-versions/${versionId}/approval`, method: "POST", headers: { "Idempotency-Key": idempotencyKey } }),
     }),
+    getBillingCatalog: build.query<BillingPlan[], void>({ query: () => "/billing/catalog" }),
+    getEntitlements: build.query<{ advancedPlanning: boolean }, void>({ query: () => "/billing/entitlements", providesTags: ["Entitlement"] }),
+    createCheckout: build.mutation<{ checkoutUrl: string }, { planId: BillingPlan["id"]; idempotencyKey: string }>({
+      query: ({ planId, idempotencyKey }) => ({ url: "/billing/checkout", method: "POST", body: { planId }, headers: { "Idempotency-Key": idempotencyKey } }),
+    }),
   }),
 });
 
@@ -185,6 +198,9 @@ export const {
   useListProjectsQuery,
   useReviseMaterialIndexMutation,
   useUploadEditalMutation,
+  useCreateCheckoutMutation,
+  useGetBillingCatalogQuery,
+  useGetEntitlementsQuery,
 } = projectsApi;
 
 export function createAppStore() {

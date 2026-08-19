@@ -6,7 +6,7 @@ import { App } from "../src/App.tsx";
 
 describe("first project journey", () => {
   beforeEach(() => {
-    window.history.replaceState({}, "", "/");
+    window.history.replaceState({}, "", "/app/");
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify([]), { status: 200 })));
   });
 
@@ -83,7 +83,7 @@ describe("first project journey", () => {
   });
 
   it("renders the final Mesa de Estudo flow regardless of obsolete query parameters", async () => {
-    window.history.replaceState({}, "", "/?variant=C");
+    window.history.replaceState({}, "", "/app/?variant=C");
     render(<App initialAuthenticated />);
 
     expect(await screen.findByRole("button", { name: "Criar Minha Trilha" })).toBeVisible();

@@ -12,6 +12,7 @@ export async function runMigrations(pool: Pool): Promise<void> {
     "0006_material_index_sources.sql",
     "0007_material_operation_idempotency.sql",
     "0008_material_index_processing_jobs.sql",
+    "0009_billing_entitlements.sql",
   ]) {
     const migration = await readFile(new URL(`../../drizzle/${filename}`, import.meta.url), "utf8");
     await pool.query(migration);

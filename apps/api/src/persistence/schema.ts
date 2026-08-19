@@ -1,4 +1,4 @@
-import { bigint, index, integer, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { bigint, boolean, index, integer, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 export const localIdentitiesTable = pgTable("local_identities", {
   id: uuid("id").primaryKey(), issuer: text("issuer").notNull(), subjectId: text("subject_id").notNull(),
@@ -126,3 +126,22 @@ export const documentUploadIdempotencyTable = pgTable("document_upload_idempoten
   processingJobId: uuid("processing_job_id").notNull().references(() => processingJobsTable.id, { onDelete: "restrict" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.idempotencyKey] })]);
+
+export const billingProviderEventsTable = pgTable("billing_provider_events", {
+  providerEventId: text("provider_event_id").primaryKey(), providerSubscriptionId: text("provider_subscription_id").notNull(),
+  tenantId: text("tenant_id"), receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(), processedAt: timestamp("processed_at", { withTimezone: true }),
+  failedAt: timestamp("failed_at", { withTimezone: true }), failureReason: text("failure_reason"),
+});
+
+export const billingSubscriptionsTable = pgTable("billing_subscriptions", {
+  providerSubscriptionId: text("provider_subscription_id").primaryKey(), providerCustomerId: text("provider_customer_id").notNull(), tenantId: text("tenant_id").notNull(),
+  planId: text("plan_id").notNull(), planVersion: text("plan_version").notNull(), providerPriceId: text("provider_price_id").notNull(), quantity: integer("quantity").notNull(),
+  status: text("status").notNull(), currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const entitlementsTable = pgTable("entitlements", {
+  id: uuid("id").primaryKey(), tenantId: text("tenant_id").notNull(), capability: text("capability").notNull(), source: text("source").notNull(),
+  sourceId: text("source_id").notNull().references(() => billingSubscriptionsTable.providerSubscriptionId, { onDelete: "restrict" }), planId: text("plan_id").notNull(),
+  planVersion: text("plan_version").notNull(),
+  active: boolean("active").notNull(), validUntil: timestamp("valid_until", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("entitlements_tenant_source_capability_idx").on(table.tenantId, table.sourceId, table.capability), index("entitlements_tenant_capability_idx").on(table.tenantId, table.capability, table.active, table.validUntil)]);

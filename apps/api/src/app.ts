@@ -30,7 +30,7 @@ import {
 } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter } from "@nestjs/platform-fastify";
-import { createMaterialSchema, createProjectApiDocument, createProjectSchema, importMaterialIndexSchema, reviseMaterialIndexSchema, toFieldErrors, updateProjectSchema } from "@planejador/contracts";
+import { billingCheckoutSchema, createMaterialSchema, createProjectApiDocument, createProjectSchema, importMaterialIndexSchema, reviseMaterialIndexSchema, toFieldErrors, updateProjectSchema } from "@planejador/contracts";
 import {
   ProjectNotFoundError,
   ProjectService,
@@ -49,6 +49,9 @@ import {
 import { InMemoryVerticalizationRepository, type VerticalizationRepository } from "../../../packages/domain/src/verticalizations.ts";
 import { InMemoryMaterialRepository, MaterialIndexService, MaterialNotFoundError, MaterialVersionInvalidError, type MaterialIndexItem, type MaterialRepository } from "../../../packages/domain/src/materials.ts";
 import { InMemoryMaterialIndexProcessingPipeline, type MaterialIndexExtractor, type MaterialIndexProcessingPipeline } from "./material-index-processing.ts";
+import { BillingService, InMemoryBillingRepository, planCatalog, type BillingRepository } from "../../../packages/domain/src/billing.ts";
+import { InvalidStripeWebhookError, type PaymentProvider, StripeWebhookVerifier } from "./billing/stripe.ts";
+import type { PaymentEventQueue } from "./billing/queue.ts";
 export type { MaterialIndexExtractor } from "./material-index-processing.ts";
 import {
   FLOW_COOKIE,
@@ -116,6 +119,10 @@ const TEST_EDITAL_CATALOG = Symbol("TEST_EDITAL_CATALOG");
 const VERIFY_ACCESS_TOKEN = Symbol("VERIFY_ACCESS_TOKEN");
 const AUTH_OPTIONS = Symbol("AUTH_OPTIONS");
 const OPENAPI_DOCUMENT = Symbol("OPENAPI_DOCUMENT");
+const BILLING_REPOSITORY = Symbol("BILLING_REPOSITORY");
+const PAYMENT_PROVIDER = Symbol("PAYMENT_PROVIDER");
+const PAYMENT_EVENT_QUEUE = Symbol("PAYMENT_EVENT_QUEUE");
+const STRIPE_WEBHOOK_VERIFIER = Symbol("STRIPE_WEBHOOK_VERIFIER");
 
 @Injectable()
 class OidcGuard implements CanActivate {
@@ -416,6 +423,78 @@ class MaterialsController {
   }
 }
 
+@Controller("billing")
+@UseGuards(OidcGuard)
+class BillingController {
+  private readonly billing: BillingService;
+  constructor(
+    @Inject(BILLING_REPOSITORY) repository: BillingRepository,
+    @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider | undefined,
+    @Inject(AUTH_OPTIONS) private readonly authentication: AuthenticationOptions,
+  ) { this.billing = new BillingService(repository); }
+
+  @Get("catalog")
+  catalog() { return planCatalog; }
+
+  @Get("entitlements")
+  async entitlements(@Req() request: AuthenticatedRequest) {
+    return { advancedPlanning: await this.billing.hasEntitlement(request.identity, "advanced_planning") };
+  }
+
+  @Post("checkout")
+  async checkout(@Req() request: AuthenticatedRequest, @Headers("idempotency-key") key: string | undefined, @Body() body: unknown) {
+    if (!key || key.length < 8) throw new BadRequestException("Informe uma chave de idempotência válida.");
+    const parsed = billingCheckoutSchema.safeParse(body);
+    if (!parsed.success) throw new BadRequestException("Selecione somente um plano publicado.");
+    const plan = planCatalog.find((candidate) => candidate.id === parsed.data.planId);
+    if (!plan) throw new BadRequestException("Selecione um plano publicado.");
+    if (!this.provider) throw new ServiceUnavailableException("O checkout está temporariamente indisponível. Tente novamente mais tarde.");
+    const appUrl = new URL("/app/billing", this.authentication.allowedOrigins[0]);
+    const successUrl = new URL(appUrl); successUrl.searchParams.set("checkout", "success");
+    const cancelUrl = new URL(appUrl); cancelUrl.searchParams.set("checkout", "canceled");
+    try {
+      return await this.provider.createHostedCheckout({ tenantId: request.identity.tenantId, plan, successUrl: successUrl.toString(), cancelUrl: cancelUrl.toString(), idempotencyKey: key });
+    } catch {
+      throw new ServiceUnavailableException("O checkout está temporariamente indisponível. Revise a configuração do plano ou tente novamente mais tarde.");
+    }
+  }
+
+  @Get("restricted/advanced-planning")
+  async restricted(@Req() request: AuthenticatedRequest) {
+    if (!await this.billing.hasEntitlement(request.identity, "advanced_planning")) throw new ForbiddenException("Contrate o Rota Pro para acessar o planejamento avançado.");
+    return { access: "granted" };
+  }
+}
+
+@Controller("billing/webhooks")
+class BillingWebhookController {
+  constructor(
+    @Inject(STRIPE_WEBHOOK_VERIFIER) private readonly verifier: StripeWebhookVerifier | undefined,
+    @Inject(PAYMENT_EVENT_QUEUE) private readonly queue: PaymentEventQueue | undefined,
+    @Inject(BILLING_REPOSITORY) private readonly billingRepository: BillingRepository,
+  ) {}
+
+  @Post("stripe")
+  @HttpCode(202)
+  async stripe(@Req() request: FastifyRequest & { rawBody?: Buffer }, @Headers("stripe-signature") signature: string | undefined) {
+    if (!this.verifier || !this.queue) throw new ServiceUnavailableException("A reconciliação de pagamentos está indisponível.");
+    const payload = request.rawBody?.toString("utf8");
+    if (!payload) throw new BadRequestException("Corpo bruto do webhook ausente.");
+    try {
+      const event = this.verifier.verify(payload, signature);
+      if (event) {
+        await this.billingRepository.receiveProviderEvent(event);
+        try { await this.queue.enqueue(event); }
+        catch { throw new ServiceUnavailableException("Evento armazenado; a fila será recuperada automaticamente."); }
+      }
+      return { accepted: true };
+    } catch (error) {
+      if (error instanceof InvalidStripeWebhookError) throw new BadRequestException(error.message);
+      throw error;
+    }
+  }
+}
+
 @Controller()
 class ContractController {
   constructor(@Inject(OPENAPI_DOCUMENT) private readonly document: ReturnType<typeof createProjectApiDocument>) {}
@@ -560,6 +639,10 @@ export interface CreateApiOptions {
   testEditals?: TestEditalCatalog;
   openIdConnectUrl: string;
   trustedProxyIps: readonly string[];
+  billing?: BillingRepository;
+  paymentProvider?: PaymentProvider;
+  paymentEventQueue?: PaymentEventQueue;
+  stripeWebhookVerifier?: StripeWebhookVerifier;
 }
 
 export async function createApi(options: CreateApiOptions): Promise<FastifyInstance> {
@@ -583,7 +666,7 @@ export async function createApi(options: CreateApiOptions): Promise<FastifyInsta
     : undefined);
 
   @Module({
-    controllers: [ProjectsController, DocumentsController, DevelopmentTestEditalsController, VerticalizationsController, MaterialsController, ContractController, AuthenticationController],
+    controllers: [ProjectsController, DocumentsController, DevelopmentTestEditalsController, VerticalizationsController, MaterialsController, BillingController, BillingWebhookController, ContractController, AuthenticationController],
     providers: [
       { provide: PROJECT_REPOSITORY, useValue: options.projects },
       { provide: DOCUMENT_PIPELINE, useValue: options.documents },
@@ -594,6 +677,10 @@ export async function createApi(options: CreateApiOptions): Promise<FastifyInsta
       { provide: VERIFY_ACCESS_TOKEN, useValue: options.verifyAccessToken },
       { provide: AUTH_OPTIONS, useValue: authentication },
       { provide: OPENAPI_DOCUMENT, useValue: createProjectApiDocument(options.openIdConnectUrl) },
+      { provide: BILLING_REPOSITORY, useValue: options.billing ?? new InMemoryBillingRepository() },
+      { provide: PAYMENT_PROVIDER, useValue: options.paymentProvider },
+      { provide: PAYMENT_EVENT_QUEUE, useValue: options.paymentEventQueue },
+      { provide: STRIPE_WEBHOOK_VERIFIER, useValue: options.stripeWebhookVerifier },
       OidcGuard,
     ],
   })
@@ -601,7 +688,7 @@ export async function createApi(options: CreateApiOptions): Promise<FastifyInsta
 
   const adapter = new FastifyAdapter({ logger: false, bodyLimit: 10 * 1024 * 1024, trustProxy: [...options.trustedProxyIps] });
   adapter.getInstance().addContentTypeParser("application/pdf", { parseAs: "buffer" }, (_request, body, done) => done(null, body));
-  const app = await NestFactory.create(ApiModule, adapter, { logger: false });
+  const app = await NestFactory.create(ApiModule, adapter, { logger: false, rawBody: true });
   app.enableCors({
     origin: [...options.allowedOrigins],
     methods: ["GET", "POST", "PATCH", "OPTIONS"],

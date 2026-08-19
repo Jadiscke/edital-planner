@@ -14,6 +14,9 @@ import { BullMqDocumentQueue } from "./documents/worker.ts";
 import { PostgresVerticalizationRepository } from "./verticalizations/repository.ts";
 import { createMaterialIndexExtractor } from "./material-index-extractor.ts";
 import { PostgresS3MaterialIndexProcessingPipeline } from "./material-index-pipeline.ts";
+import { PostgresBillingRepository } from "./billing/persistence.ts";
+import { BullMqPaymentEventQueue, recoverPendingPaymentEvents } from "./billing/queue.ts";
+import { StripePaymentProvider, StripeWebhookVerifier } from "./billing/stripe.ts";
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
@@ -51,6 +54,12 @@ const trustedProxyIps = proxySetting === "none" ? [] : proxySetting.split(",").m
 const documentInfrastructure = createDocumentInfrastructure(process.env);
 const ai = createAiService(process.env);
 const documentQueue = new BullMqDocumentQueue(documentInfrastructure);
+const billing = new PostgresBillingRepository(pool);
+const paymentsEnabled = process.env.PAYMENTS_ENABLED === "true";
+const paymentProvider = paymentsEnabled ? new StripePaymentProvider({ secretKey: requiredEnvironment("STRIPE_SECRET_KEY"), priceId: requiredEnvironment("STRIPE_ROTA_PRO_PRICE_ID") }) : undefined;
+const paymentEventQueue = paymentsEnabled ? new BullMqPaymentEventQueue(documentInfrastructure.connection) : undefined;
+if (paymentEventQueue) await recoverPendingPaymentEvents(billing, paymentEventQueue);
+const stripeWebhookVerifier = paymentsEnabled ? new StripeWebhookVerifier(requiredEnvironment("STRIPE_WEBHOOK_SECRET")) : undefined;
 const materials = new PostgresMaterialRepository(pool);
 const callbackUrl = new URL(requiredEnvironment("OIDC_CALLBACK_URL"));
 if (productionSecurity && (allowedOrigins.some((origin) => new URL(origin).protocol !== "https:") || callbackUrl.protocol !== "https:")) throw new Error("Production origins and OIDC callback must use HTTPS");
@@ -65,6 +74,10 @@ const api = await createApi({
   }),
   verticalizations: new PostgresVerticalizationRepository(pool),
   materials,
+  billing,
+  ...(paymentProvider ? { paymentProvider } : {}),
+  ...(paymentEventQueue ? { paymentEventQueue } : {}),
+  ...(stripeWebhookVerifier ? { stripeWebhookVerifier } : {}),
   materialIndexPipeline: new PostgresS3MaterialIndexProcessingPipeline({
     pool,
     s3: documentInfrastructure.s3,
@@ -83,6 +96,7 @@ const api = await createApi({
 });
 api.addHook("onClose", async () => {
   await documentQueue.close();
+  await paymentEventQueue?.close();
   documentInfrastructure.s3.destroy();
   await pool.end();
 });
