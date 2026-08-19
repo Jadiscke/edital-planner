@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: completed
 
 # Escalar modelos do OpenRouter até revisão humana
 
@@ -12,12 +12,12 @@ Executar inferências por OpenRouter com modelo primário e fallbacks configurad
 
 ## Acceptance criteria
 
-- [ ] Configuração ausente ou inválida falha antes de enfileirar inferência e informa quais variáveis são necessárias.
-- [ ] O request usa os modelos na ordem configurada, `data_collection: deny`, ZDR quando habilitado e saída estruturada estrita.
-- [ ] O modelo efetivamente usado e a contabilização retornada pelo OpenRouter ficam registrados.
-- [ ] Timeout, resposta inválida, baixa evidência ou limite de custo terminam em estado recuperável ou revisão humana, nunca em aprovação silenciosa.
-- [ ] Testes sem mocks verificam configuração, transições e validação por interfaces públicas; teste live verifica uma chamada real quando as credenciais existem.
-- [ ] A UI apresenta conclusão, necessidade de revisão ou falha recuperável com correlação do job.
+- [x] Configuração ausente ou inválida falha antes de enfileirar inferência e informa quais variáveis são necessárias.
+- [x] O request usa os modelos na ordem configurada, `data_collection: deny`, ZDR quando habilitado e saída estruturada estrita.
+- [x] O modelo efetivamente usado e a contabilização retornada pelo OpenRouter ficam registrados.
+- [x] Timeout, resposta inválida, baixa evidência ou limite de custo terminam em estado recuperável ou revisão humana, nunca em aprovação silenciosa.
+- [x] Testes sem mocks verificam configuração, transições e validação por interfaces públicas; teste live verifica uma chamada real quando as credenciais existem.
+- [x] A UI apresenta conclusão, necessidade de revisão ou falha recuperável com correlação do job.
 
 ## Blocked by
 
@@ -30,3 +30,4 @@ Executar inferências por OpenRouter com modelo primário e fallbacks configurad
 - Limites conhecidos: integrações PostgreSQL/S3/Redis foram ignoradas porque a infraestrutura opcional não estava disponível; chamadas live pagas não foram executadas sem credenciais e autorização explícita de transferência.
 - Aviso de IA: resultados gerados por IA são sugestões sujeitas à revisão humana e não equivalem a aprovação. Prompts, credenciais e dados sensíveis não são exibidos na interface.
 - 2026-08-15 — Critérios reabertos após review independente identificar promoção prematura, divergência de observabilidade e lacunas de contabilização/testes. Permanecem abertos até nova revisão e integração na branch padrão.
+- 2026-08-19 — Concluída na `main`: commits `2721064` e `de6282f`/`0ec491a`. Corrigidos consentimento antes do enqueue, fallback/OpenRouter auditável, revisão humana, transições protegidas por claim/`rowCount` para verticalização e material-index, e erro de configuração acionável. Verificações: `pnpm test` (59 testes base, 78 API e 27 web aprovados; 3 OpenRouter opt-in ignorados na suíte padrão), `pnpm typecheck`, Docker com PostgreSQL/Redis/MinIO (9 aprovados, 1 opt-in ignorado), e chamada textual real do OpenRouter aprovada dentro do orçamento configurado. Critérios encerrados após integração.
