@@ -72,8 +72,10 @@ export function EditalUpload({ onVerticalization }: { onVerticalization?: (tree:
     skipPollingIfUnfocused: true,
     refetchOnMountOrArgChange: true,
   });
+  const jobErrorStatus = (job.error as { status?: unknown } | undefined)?.status;
+  const hasPollingError = jobId.length > 0 && job.isError && jobErrorStatus !== 404;
   const statusRef = useRef<HTMLParagraphElement>(null);
-  const verticalization = useGetVerticalizationQuery(job.data?.documentVersionId ?? "", { skip: job.data?.status !== "completed" && job.data?.status !== "needs_review" });
+  const verticalization = useGetVerticalizationQuery(job.data?.documentVersionId ?? "", { skip: job.data?.status !== "completed" });
 
   useEffect(() => {
     const restoredJobId = project ? storedJobId(project.id) : "";
@@ -107,6 +109,13 @@ export function EditalUpload({ onVerticalization }: { onVerticalization?: (tree:
     setIsError(true);
     setMessage("O processamento anterior não está mais disponível. Envie o PDF novamente para iniciar uma nova tentativa.");
   }, [job.error, job.isError, project]);
+  useEffect(() => {
+    const responseStatus = (job.error as { status?: unknown } | undefined)?.status;
+    if (!jobId || !job.isError || responseStatus === 404) return;
+    setShouldPoll(false);
+    setIsError(true);
+    setMessage("Não foi possível atualizar o andamento. Seu edital continua registrado; apenas não conseguimos consultar o status agora. Verifique sua conexão e tente novamente.");
+  }, [job.error, job.isError, jobId]);
   useEffect(() => { if (isError) statusRef.current?.focus(); }, [isError, message]);
   useEffect(() => {
     if (verticalization.data?.subjects?.length) onVerticalization?.(verticalization.data);
@@ -213,10 +222,25 @@ export function EditalUpload({ onVerticalization }: { onVerticalization?: (tree:
         <label className="file-trigger" htmlFor="edital-file">Selecionar PDF</label>
         <strong>{file?.name ?? "Nenhum arquivo selecionado"}</strong>
       </div>
-      <button className="upload-action" type="button" disabled={uploadState.isLoading} onClick={() => { void submit(); }}>
+      {!hasPollingError ? <button className="upload-action" type="button" disabled={uploadState.isLoading} onClick={() => { void submit(); }}>
         {uploadState.isLoading ? "Enviando…" : job.data?.status === "failed_recoverable" || job.data?.status === "failed_invalid_output" ? "Tentar Novo Processamento" : processingMode === "full" ? "Enviar Edital Completo" : "Enviar Edital"}
-      </button>
-      <p ref={statusRef} tabIndex={-1} className="upload-status" role={isError ? "alert" : "status"} aria-live="polite">{message}</p>
+      </button> : null}
+      <div className={hasPollingError ? "upload-feedback upload-feedback--recovery" : "upload-feedback"}>
+        <p ref={statusRef} tabIndex={-1} className="upload-status" role={isError ? "alert" : "status"} aria-live="polite">{message}</p>
+      {hasPollingError ? (
+        <button
+          type="button"
+          className="status-retry-action"
+          onClick={() => {
+            setIsError(false);
+            setMessage("Atualizando andamento…");
+            void job.refetch();
+          }}
+        >
+          Tentar Atualizar Status
+        </button>
+      ) : null}
+      </div>
       {job.data?.status === "needs_review" ? <aside className="review-notice" aria-labelledby="review-notice-title">
         <h3 id="review-notice-title">Revisão humana necessária</h3>
         <ul>

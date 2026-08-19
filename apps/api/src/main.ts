@@ -1,5 +1,5 @@
 import { Pool } from "pg";
-import { loadOpenRouterConfig } from "../../../packages/ai/src/config.ts";
+import { createAiService, type AiService } from "@planejador/ai";
 
 import { createApi } from "./app.ts";
 import { createDiscoveredOidcBff } from "./oidc.ts";
@@ -51,6 +51,8 @@ const trustedProxyIps = proxySetting === "none" ? [] : proxySetting.split(",").m
 const documentInfrastructure = createDocumentInfrastructure(process.env);
 const documentQueue = new BullMqDocumentQueue(documentInfrastructure);
 const materials = new PostgresMaterialRepository(pool);
+const checkAiConfiguration: AiService["checkConfiguration"] = () => createAiService(process.env).checkConfiguration();
+const validateAiConfiguration = async () => { await checkAiConfiguration(); };
 const callbackUrl = new URL(requiredEnvironment("OIDC_CALLBACK_URL"));
 if (productionSecurity && (allowedOrigins.some((origin) => new URL(origin).protocol !== "https:") || callbackUrl.protocol !== "https:")) throw new Error("Production origins and OIDC callback must use HTTPS");
 if (!productionSecurity && [...allowedOrigins.map((origin) => new URL(origin)), callbackUrl].some((url) => !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) throw new Error("Development plaintext is restricted to loopback hosts");
@@ -61,7 +63,7 @@ const api = await createApi({
     s3: documentInfrastructure.s3,
     bucket: documentInfrastructure.bucket,
     queue: documentQueue,
-    validateAiConfiguration: () => { loadOpenRouterConfig(process.env); },
+    aiService: { checkConfiguration: checkAiConfiguration },
   }),
   verticalizations: new PostgresVerticalizationRepository(pool),
   materials,
@@ -71,7 +73,7 @@ const api = await createApi({
     bucket: documentInfrastructure.bucket,
     materials,
     queue: documentQueue,
-    validateAiConfiguration: () => { loadOpenRouterConfig(process.env); },
+    validateAiConfiguration,
   }),
   sessions: new PostgresSessionStore(pool),
   memberships: new PostgresMembershipResolver(pool),

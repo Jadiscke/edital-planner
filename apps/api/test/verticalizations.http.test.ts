@@ -18,7 +18,7 @@ const tree: VerticalizationTree = {
       evidence: [{ page: 14, text: "interpretação de textos", boundingBox: null }], subtopics: [] }] }],
   warnings: [], createdAt: "2026-08-10T12:00:00.000Z",
   execution: { requestId: "gen-1", promptVersion: "verticalize-edital@1.0.0", model: "resolved/model", provider: null,
-    promptTokens: 10, completionTokens: 20, totalTokens: 30, cost: null, latencyMs: 100 },
+    promptTokens: 10, completionTokens: 20, totalTokens: 30, cachedTokens: 0, reasoningTokens: 0, cost: null, latencyMs: 100 },
 };
 
 describe("verticalization HTTP contract", () => {

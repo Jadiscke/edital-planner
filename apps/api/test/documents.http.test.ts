@@ -1,19 +1,24 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AiConfigurationError } from "@planejador/ai";
+import { createAiService } from "../../../packages/ai/src/service.ts";
 
 import { InMemoryDocumentPipeline } from "../../../packages/domain/src/documents.ts";
 import { InMemoryProjectRepository } from "../../../packages/domain/src/projects.ts";
+import { InMemoryVerticalizationRepository } from "../../../packages/domain/src/verticalizations.ts";
 import { createApi } from "../src/app.ts";
+import { DevelopmentDocumentPipeline } from "../src/documents/development-pipeline.ts";
+import { PostgresS3DocumentPipeline } from "../src/documents/pipeline.ts";
 import { InMemoryMembershipResolver } from "../src/authorization.ts";
 import { InMemorySessionStore } from "../src/sessions.ts";
 
-function testApi(documents = new InMemoryDocumentPipeline(), testEditals?: Parameters<typeof createApi>[0]["testEditals"]) {
+function testApi(documents: Parameters<typeof createApi>[0]["documents"] = new InMemoryDocumentPipeline(), testEditals?: Parameters<typeof createApi>[0]["testEditals"], verticalizations?: InMemoryVerticalizationRepository) {
   const memberships = new InMemoryMembershipResolver();
   memberships.allow("https://issuer.test", "candidate-a", "tenant-a");
   memberships.allow("https://issuer.test", "candidate-b", "tenant-b");
   return createApi({
     projects: new InMemoryProjectRepository(),
     documents,
+    ...(verticalizations ? { verticalizations } : {}),
     sessions: new InMemorySessionStore(),
     memberships,
     allowedOrigins: ["https://app.example.test"],
@@ -171,6 +176,92 @@ describe("edital upload HTTP contract", () => {
       variables: ["OPENROUTER_DATA_COLLECTION", "OPENROUTER_MAX_COST_USD"],
     });
     expect(documents.jobCount).toBe(0);
+  });
+
+  it("rejects full document processing before persistence or enqueue when document consent is absent", async () => {
+    const pool = { connect: vi.fn() };
+    const s3 = { send: vi.fn() };
+    const queue = { enqueue: vi.fn() };
+    const aiService = createAiService({
+      OPENROUTER_API_KEY: "fixture-key-not-for-network",
+      OPENROUTER_PRIMARY_MODEL: "fixture/model",
+      OPENROUTER_DOCUMENT_TRANSFER_APPROVED: "false",
+      LOCAL_PDF_PARSING_APPROVED: "false",
+    });
+    const documents = new PostgresS3DocumentPipeline({
+      pool: pool as never,
+      s3: s3 as never,
+      bucket: "fixture-documents",
+      queue,
+      aiService,
+    });
+    const app = await testApi(documents);
+    activeApps.push(app);
+    const project = await app.inject({
+      method: "POST", url: "/projects",
+      headers: { authorization: "Bearer token", "idempotency-key": "project-consent" },
+      payload: { concurso: "DATAPREV", cargo: "Analista", area: "Tecnologia" },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/projects/${project.json().id}/editais`,
+      headers: {
+        authorization: "Bearer token",
+        "content-type": "application/pdf",
+        "idempotency-key": "upload-consent",
+        "x-processing-mode": "full",
+      },
+      payload: Buffer.from("%PDF-1.7\n%%EOF"),
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({
+      code: "ai_configuration_invalid",
+      message: "Configuração de IA inválida. Corrija: OPENROUTER_DOCUMENT_TRANSFER_APPROVED, LOCAL_PDF_PARSING_APPROVED.",
+      variables: ["OPENROUTER_DOCUMENT_TRANSFER_APPROVED", "LOCAL_PDF_PARSING_APPROVED"],
+    });
+    expect(JSON.stringify(response.json())).not.toContain("fixture-key-not-for-network");
+    expect(pool.connect).not.toHaveBeenCalled();
+    expect(s3.send).not.toHaveBeenCalled();
+    expect(queue.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("exposes a review suggestion through the job while the functional verticalization remains unpublished", async () => {
+    const verticalizations = new InMemoryVerticalizationRepository();
+    const documents = new DevelopmentDocumentPipeline({
+      verticalizations,
+      reviewPolicy: { minimumEvidenceConfidence: 0.75, maxCostUsd: 0.25 },
+      aiService: {
+        checkConfiguration: async () => ({}) as never,
+        verticalizeEdital: async (input) => ({
+          data: {
+            documentVersionId: input.documentVersionId,
+            contest: { name: "DATAPREV", role: "Analista", area: "Tecnologia" }, examOptions: [], warnings: [],
+            subjects: [{ originalName: "DIREITO", normalizedName: "Direito", confidence: 0.7, evidence: [{ page: 1, text: "DIREITO", boundingBox: null }], examOptionIds: [], topics: [] }],
+          },
+          audit: { requestId: "generation-public-review", model: "fallback/resolved", provider: "Azure", promptVersion: "verticalize-edital@1.0.0", durationMs: 80,
+            usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30, cachedTokens: 4, cacheWriteTokens: 2, audioTokens: 0, reasoningTokens: 3, cost: 0.01, upstreamInferenceCost: 0.008 } },
+        }),
+      },
+    });
+    const app = await testApi(documents, undefined, verticalizations);
+    activeApps.push(app);
+    const project = await app.inject({ method: "POST", url: "/projects", headers: { authorization: "Bearer token", "idempotency-key": "project-public-review" }, payload: { concurso: "DATAPREV", cargo: "Analista", area: "Tecnologia" } });
+    const uploaded = await app.inject({ method: "POST", url: `/projects/${project.json().id}/editais`, headers: { authorization: "Bearer token", "content-type": "application/pdf", "idempotency-key": "upload-public-review", "x-processing-mode": "full" }, payload: Buffer.from("%PDF-1.7\n%%EOF") });
+    let job = uploaded.json().job;
+    for (let attempt = 0; attempt < 20 && job.status !== "needs_review"; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      job = (await app.inject({ method: "GET", url: `/processing-jobs/${job.id}`, headers: { authorization: "Bearer token" } })).json();
+    }
+
+    expect(job).toMatchObject({
+      status: "needs_review", reviewReasons: ["low_evidence"],
+      inference: { requestId: "generation-public-review", provider: "Azure", usage: { cachedTokens: 4, cacheWriteTokens: 2, reasoningTokens: 3, upstreamInferenceCost: 0.008 } },
+      reviewSuggestion: { documentVersionId: uploaded.json().documentVersion.id, subjects: [expect.objectContaining({ normalizedName: "Direito" })] },
+    });
+    const functionalTree = await app.inject({ method: "GET", url: `/document-versions/${uploaded.json().documentVersion.id}/verticalization`, headers: { authorization: "Bearer token" } });
+    expect(functionalTree.statusCode).toBe(404);
   });
 
   it.each([

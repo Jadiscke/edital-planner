@@ -49,7 +49,12 @@ export interface VerticalizationTree {
     readonly promptTokens: number;
     readonly completionTokens: number;
     readonly totalTokens: number;
+    readonly cachedTokens: number;
+    readonly cacheWriteTokens?: number;
+    readonly audioTokens?: number;
+    readonly reasoningTokens: number;
     readonly cost: number | null;
+    readonly upstreamInferenceCost?: number | null;
     readonly latencyMs: number;
   };
   readonly createdAt: string;
@@ -62,11 +67,24 @@ export interface VerticalizationRepository {
   getByDocumentVersion(scope: TenantScope, documentVersionId: string): Promise<VerticalizationTree | undefined>;
 }
 
+export class VerticalizationConflictError extends Error {
+  constructor() {
+    super("Já existe uma verticalização produzida por outra inferência para esta versão do documento.");
+    this.name = "VerticalizationConflictError";
+  }
+}
+
 export class InMemoryVerticalizationRepository implements VerticalizationRepository {
   readonly #trees = new Map<string, VerticalizationTree>();
 
   async save(tree: VerticalizationTree): Promise<void> {
-    this.#trees.set(`${tree.tenantId}:${tree.documentVersionId}`, structuredClone(tree));
+    const key = `${tree.tenantId}:${tree.documentVersionId}`;
+    const existing = this.#trees.get(key);
+    if (existing) {
+      if (existing.execution.requestId === tree.execution.requestId) return;
+      throw new VerticalizationConflictError();
+    }
+    this.#trees.set(key, structuredClone(tree));
   }
 
   async getByDocumentVersion(scope: TenantScope, documentVersionId: string): Promise<VerticalizationTree | undefined> {

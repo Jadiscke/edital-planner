@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { Pool } from "pg";
-import { createAiService, type AiService } from "../../../packages/ai/src/index.ts";
+import { AiConfigurationError, createAiService, type AiService } from "../../../packages/ai/src/index.ts";
 import { InMemoryProjectRepository } from "../../../packages/domain/src/projects.ts";
 import { InMemoryVerticalizationRepository } from "../../../packages/domain/src/verticalizations.ts";
 import { InMemoryMaterialRepository } from "../../../packages/domain/src/materials.ts";
@@ -26,11 +26,15 @@ const pool = postgres ? new Pool({ connectionString: postgres.getConnectionUri()
 if (pool) await runMigrations(pool);
 const projects = pool ? new PostgresProjectRepository(pool) : inMemoryProjects;
 const verticalizations = new InMemoryVerticalizationRepository();
+const missingAiConfiguration = [
+  "OPENROUTER_API_KEY",
+  "OPENROUTER_PRIMARY_MODEL",
+].filter((name) => !process.env[name]?.trim());
 const unavailableAi: Pick<AiService, "checkConfiguration" | "verticalizeEdital"> = {
-  async checkConfiguration() { throw new Error("Defina OPENROUTER_API_KEY e OPENROUTER_PRIMARY_MODEL para usar o processamento completo."); },
-  async verticalizeEdital() { throw new Error("Configure o OpenRouter para usar o processamento completo."); },
+  async checkConfiguration() { throw new AiConfigurationError(missingAiConfiguration); },
+  async verticalizeEdital() { throw new AiConfigurationError(missingAiConfiguration); },
 };
-const aiService = process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_PRIMARY_MODEL ? createAiService(process.env) : unavailableAi;
+const aiService = missingAiConfiguration.length === 0 ? createAiService(process.env) : unavailableAi;
 const documents = new DevelopmentDocumentPipeline({ verticalizations, aiService });
 const materials = new InMemoryMaterialRepository();
 const materialIndexExtractor = createOptionalMaterialIndexExtractor(process.env) ?? createDevelopmentMaterialIndexExtractor();

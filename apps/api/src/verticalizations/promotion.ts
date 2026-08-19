@@ -43,7 +43,12 @@ export async function promoteVerticalization(input: {
       promptTokens: audit.usage.promptTokens,
       completionTokens: audit.usage.completionTokens,
       totalTokens: audit.usage.totalTokens,
+      cachedTokens: audit.usage.cachedTokens,
+      reasoningTokens: audit.usage.reasoningTokens,
       cost: audit.usage.cost,
+      ...(audit.usage.cacheWriteTokens === undefined ? {} : { cacheWriteTokens: audit.usage.cacheWriteTokens }),
+      ...(audit.usage.audioTokens === undefined ? {} : { audioTokens: audit.usage.audioTokens }),
+      ...(audit.usage.upstreamInferenceCost === undefined ? {} : { upstreamInferenceCost: audit.usage.upstreamInferenceCost }),
     },
     createdAt: new Date().toISOString(),
   };

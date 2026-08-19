@@ -71,7 +71,12 @@ test("a parsed PDF becomes a complete multi-option tree without a monolithic JSO
           }],
         },
       }],
-      usage: { prompt_tokens: 73_568, completion_tokens: 8, total_tokens: 73_576, cost: 0.005887 },
+      usage: {
+        prompt_tokens: 73_568, completion_tokens: 8, total_tokens: 73_576, cost: 0.005887,
+        prompt_tokens_details: { cached_tokens: 12_000, cache_write_tokens: 1_000, audio_tokens: 0 },
+        completion_tokens_details: { reasoning_tokens: 3 },
+        cost_details: { upstream_inference_cost: 0.0042 },
+      },
     }), { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
 
@@ -116,6 +121,11 @@ test("a parsed PDF becomes a complete multi-option tree without a monolithic JSO
     assert.equal(request.provider?.allow_fallbacks, true);
     assert.equal("response_format" in request, false);
     assert.equal(result.audit.usage.cost, 0.005887);
+    assert.deepEqual(result.audit.usage, {
+      promptTokens: 73_568, completionTokens: 8, totalTokens: 73_576, cost: 0.005887,
+      cachedTokens: 12_000, cacheWriteTokens: 1_000, audioTokens: 0,
+      reasoningTokens: 3, upstreamInferenceCost: 0.0042,
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }

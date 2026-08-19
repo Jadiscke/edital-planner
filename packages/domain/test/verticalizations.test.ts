@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { InMemoryVerticalizationRepository } from "../src/verticalizations.ts";
+import { InMemoryVerticalizationRepository, VerticalizationConflictError } from "../src/verticalizations.ts";
 
 const tree = {
   id: "verticalization-1",
@@ -30,6 +30,7 @@ const tree = {
     requestId: "generation-1", promptVersion: "verticalize-edital@1.0.0",
     model: "deepseek/deepseek-v4-flash", provider: "DeepSeek",
     promptTokens: 120, completionTokens: 80, totalTokens: 200,
+    cachedTokens: 0, reasoningTokens: 0,
     cost: 0.00004, latencyMs: 820,
   },
   createdAt: "2026-08-10T12:00:00.000Z",
@@ -42,5 +43,21 @@ describe("verticalization repository", () => {
 
     assert.deepEqual(await repository.getByDocumentVersion({ tenantId: "tenant-a" }, "version-a"), tree);
     assert.equal(await repository.getByDocumentVersion({ tenantId: "tenant-b" }, "version-a"), undefined);
+  });
+
+  it("accepts an identical inference replay but rejects a conflicting promotion", async () => {
+    const repository = new InMemoryVerticalizationRepository();
+    await repository.save(tree);
+    await repository.save({ ...tree, id: "verticalization-replay" });
+
+    await assert.rejects(
+      repository.save({
+        ...tree,
+        id: "verticalization-conflict",
+        execution: { ...tree.execution, requestId: "generation-2" },
+      }),
+      VerticalizationConflictError,
+    );
+    assert.deepEqual(await repository.getByDocumentVersion({ tenantId: "tenant-a" }, "version-a"), tree);
   });
 });

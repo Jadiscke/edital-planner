@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import type { IdentityContext } from "./projects.ts";
+import type { ExamOption, VerticalizationSubject } from "./verticalizations.ts";
 
 export type ProcessingJobStatus = "pending" | "processing" | "completed" | "needs_review" | "failed_recoverable" | "failed_invalid_output";
 export type HumanReviewReason = "low_evidence" | "cost_limit_exceeded" | "cost_unavailable";
@@ -16,9 +17,20 @@ export interface ProcessingJobInference {
     completionTokens: number;
     totalTokens: number;
     cachedTokens: number;
+    cacheWriteTokens?: number;
+    audioTokens?: number;
     reasoningTokens: number;
     cost: number | null;
+    upstreamInferenceCost?: number | null;
   };
+}
+
+export interface VerticalizationReviewSuggestion {
+  documentVersionId: string;
+  contest: { name: string; role: string; area: string };
+  examOptions: readonly ExamOption[];
+  subjects: readonly VerticalizationSubject[];
+  warnings: readonly string[];
 }
 
 export interface DocumentVersion {
@@ -44,6 +56,7 @@ export interface ProcessingJob {
   errorCode?: string;
   reviewReasons?: HumanReviewReason[];
   inference?: ProcessingJobInference;
+  reviewSuggestion?: VerticalizationReviewSuggestion;
   createdAt: string;
   updatedAt: string;
 }
@@ -162,8 +175,8 @@ export class InMemoryDocumentPipeline implements DocumentPipeline {
     this.transition(jobId, "completed", undefined, inference ? { inference } : {});
   }
 
-  async requireReview(jobId: string, reviewReasons: HumanReviewReason[], inference: ProcessingJobInference): Promise<void> {
-    this.transition(jobId, "needs_review", undefined, { reviewReasons, inference });
+  async requireReview(jobId: string, reviewReasons: HumanReviewReason[], inference: ProcessingJobInference, reviewSuggestion: VerticalizationReviewSuggestion): Promise<void> {
+    this.transition(jobId, "needs_review", undefined, { reviewReasons, inference, reviewSuggestion });
   }
 
   async fail(jobId: string, errorCode: string): Promise<void> {
@@ -178,7 +191,7 @@ export class InMemoryDocumentPipeline implements DocumentPipeline {
     jobId: string,
     status: ProcessingJobStatus,
     errorCode?: string,
-    details: Pick<ProcessingJob, "reviewReasons" | "inference"> = {},
+    details: Pick<ProcessingJob, "reviewReasons" | "inference" | "reviewSuggestion"> = {},
   ): void {
     const job = this.jobs.get(jobId);
     if (!job) throw new Error("ProcessingJob not found");
@@ -193,6 +206,7 @@ export class InMemoryDocumentPipeline implements DocumentPipeline {
       ...(errorCode ? { errorCode } : {}),
       ...(details.reviewReasons ? { reviewReasons: details.reviewReasons } : {}),
       ...(details.inference ? { inference: details.inference } : {}),
+      ...(details.reviewSuggestion ? { reviewSuggestion: structuredClone(details.reviewSuggestion) } : {}),
     });
   }
 

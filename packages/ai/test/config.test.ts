@@ -28,6 +28,7 @@ test("configuration exposes a safe diagnostic without leaking the API key", asyn
       "openai/gpt-5.2, anthropic/claude-sonnet-4.5",
     OPENROUTER_ZDR: "true",
     OPENROUTER_DATA_COLLECTION: "deny",
+    LOCAL_PDF_PARSING_APPROVED: "true",
   });
 
   const diagnostic = await service.checkConfiguration();
@@ -49,6 +50,7 @@ test("blank optional environment variables behave as unset", async () => {
     OPENROUTER_API_KEY: "diagnostic-only",
     OPENROUTER_PRIMARY_MODEL: "openrouter/auto",
     OPENROUTER_APP_URL: "",
+    LOCAL_PDF_PARSING_APPROVED: "true",
   });
 
   const diagnostic = await service.checkConfiguration();

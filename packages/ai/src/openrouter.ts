@@ -56,9 +56,12 @@ const openRouterResponseSchema = z
         prompt_tokens_details: z
           .object({
             cached_tokens: z.number().nonnegative().optional(),
+            cache_write_tokens: z.number().nonnegative().optional(),
+            audio_tokens: z.number().nonnegative().optional(),
           })
           .passthrough()
           .optional(),
+        cost_details: z.object({ upstream_inference_cost: z.number().nonnegative().optional() }).passthrough().optional(),
         completion_tokens_details: z
           .object({
             reasoning_tokens: z.number().nonnegative().optional(),
@@ -106,8 +109,9 @@ const pdfParseResponseSchema = z
       completion_tokens: z.number().nonnegative().default(0),
       total_tokens: z.number().nonnegative().default(0),
       cost: z.number().nonnegative().optional(),
-      prompt_tokens_details: z.object({ cached_tokens: z.number().nonnegative().optional() }).passthrough().optional(),
+      prompt_tokens_details: z.object({ cached_tokens: z.number().nonnegative().optional(), cache_write_tokens: z.number().nonnegative().optional(), audio_tokens: z.number().nonnegative().optional() }).passthrough().optional(),
       completion_tokens_details: z.object({ reasoning_tokens: z.number().nonnegative().optional() }).passthrough().optional(),
+      cost_details: z.object({ upstream_inference_cost: z.number().nonnegative().optional() }).passthrough().optional(),
     }).passthrough(),
   })
   .passthrough();
@@ -137,12 +141,15 @@ export interface StructuredCompletionRequest<T> {
 }
 
 export interface AiUsage {
+  readonly audioTokens?: number;
   readonly cachedTokens: number;
+  readonly cacheWriteTokens?: number;
   readonly completionTokens: number;
   readonly cost: number | null;
   readonly promptTokens: number;
   readonly reasoningTokens: number;
   readonly totalTokens: number;
+  readonly upstreamInferenceCost?: number | null;
 }
 
 export interface AiTaskAudit {
@@ -272,12 +279,15 @@ export class OpenRouterClient {
         provider: completion.data.provider ?? null,
         requestId: completion.data.id,
         usage: {
+          audioTokens: usage.prompt_tokens_details?.audio_tokens ?? 0,
           cachedTokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+          cacheWriteTokens: usage.prompt_tokens_details?.cache_write_tokens ?? 0,
           completionTokens: usage.completion_tokens,
           cost: usage.cost ?? null,
           promptTokens: usage.prompt_tokens,
           reasoningTokens: usage.completion_tokens_details?.reasoning_tokens ?? 0,
           totalTokens: usage.total_tokens,
+          upstreamInferenceCost: usage.cost_details?.upstream_inference_cost ?? null,
         },
       },
     };
@@ -399,14 +409,19 @@ export class OpenRouterClient {
             provider: completion.data.provider ?? null,
             requestId: completion.data.id,
             usage: {
+              audioTokens: usage.prompt_tokens_details?.audio_tokens ?? 0,
               cachedTokens:
                 usage.prompt_tokens_details?.cached_tokens ?? 0,
+              cacheWriteTokens:
+                usage.prompt_tokens_details?.cache_write_tokens ?? 0,
               completionTokens: usage.completion_tokens,
               cost: usage.cost ?? null,
               promptTokens: usage.prompt_tokens,
               reasoningTokens:
                 usage.completion_tokens_details?.reasoning_tokens ?? 0,
               totalTokens: usage.total_tokens,
+              upstreamInferenceCost:
+                usage.cost_details?.upstream_inference_cost ?? null,
             },
           },
         };

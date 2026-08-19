@@ -110,10 +110,14 @@ const protectedSecurity = [{ cookieSession: [] }, { oidc: [] }] as const;
 const processingJobSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["id", "documentVersionId", "projectId", "status", "correlationId", "createdAt", "updatedAt"],
+  required: ["id", "kind", "projectId", "status", "correlationId", "createdAt", "updatedAt"],
   properties: {
     id: { type: "string", format: "uuid" },
+    kind: { type: "string", enum: ["document_verticalization", "material_index_extraction"] },
     documentVersionId: { type: "string", format: "uuid" },
+    materialId: { type: "string", format: "uuid" },
+    sourceFilename: { type: "string" },
+    resultVersionId: { type: "string", format: "uuid" },
     projectId: { type: "string", format: "uuid" },
     status: { type: "string", enum: ["pending", "processing", "completed", "needs_review", "failed_recoverable", "failed_invalid_output"] },
     correlationId: { type: "string", format: "uuid" },
@@ -123,6 +127,26 @@ const processingJobSchema = {
       items: { type: "string", enum: ["low_evidence", "cost_limit_exceeded", "cost_unavailable"] },
       uniqueItems: true,
     },
+    inference: {
+      type: "object", additionalProperties: false,
+      required: ["requestId", "model", "provider", "promptVersion", "durationMs", "usage"],
+      properties: {
+        requestId: { type: "string" }, model: { type: "string" }, provider: { type: ["string", "null"] },
+        promptVersion: { type: "string" }, durationMs: { type: "integer", minimum: 0 },
+        usage: {
+          type: "object", additionalProperties: false,
+          required: ["promptTokens", "completionTokens", "totalTokens", "cachedTokens", "reasoningTokens", "cost"],
+          properties: {
+            promptTokens: { type: "integer", minimum: 0 }, completionTokens: { type: "integer", minimum: 0 },
+            totalTokens: { type: "integer", minimum: 0 }, cachedTokens: { type: "integer", minimum: 0 },
+            cacheWriteTokens: { type: "integer", minimum: 0 }, audioTokens: { type: "integer", minimum: 0 },
+            reasoningTokens: { type: "integer", minimum: 0 }, cost: { type: ["number", "null"], minimum: 0 },
+            upstreamInferenceCost: { type: ["number", "null"], minimum: 0 },
+          },
+        },
+      },
+    },
+    reviewSuggestion: { $ref: "#/components/schemas/VerticalizationSuggestion" },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
   },
@@ -205,10 +229,23 @@ const verticalizationTreeSchema = {
       },
     },
     warnings: { type: "array", items: { type: "string" } },
-    execution: { type: "object", required: ["requestId", "promptVersion", "model", "provider", "promptTokens", "completionTokens", "totalTokens", "cost", "latencyMs"],
+    execution: { type: "object", required: ["requestId", "promptVersion", "model", "provider", "promptTokens", "completionTokens", "totalTokens", "cachedTokens", "reasoningTokens", "cost", "latencyMs"],
       properties: { requestId: { type: "string" }, promptVersion: { type: "string" }, model: { type: "string" }, provider: { type: ["string", "null"] },
-        promptTokens: { type: "integer" }, completionTokens: { type: "integer" }, totalTokens: { type: "integer" }, cost: { type: ["number", "null"] }, latencyMs: { type: "integer" } } },
+        promptTokens: { type: "integer" }, completionTokens: { type: "integer" }, totalTokens: { type: "integer" }, cachedTokens: { type: "integer" },
+        cacheWriteTokens: { type: "integer" }, audioTokens: { type: "integer" }, reasoningTokens: { type: "integer" },
+        cost: { type: ["number", "null"] }, upstreamInferenceCost: { type: ["number", "null"] }, latencyMs: { type: "integer" } } },
     createdAt: { type: "string", format: "date-time" },
+  },
+} as const;
+const verticalizationSuggestionSchema = {
+  type: "object", additionalProperties: false,
+  required: ["documentVersionId", "contest", "examOptions", "subjects", "warnings"],
+  properties: {
+    documentVersionId: verticalizationTreeSchema.properties.documentVersionId,
+    contest: verticalizationTreeSchema.properties.contest,
+    examOptions: verticalizationTreeSchema.properties.examOptions,
+    subjects: verticalizationTreeSchema.properties.subjects,
+    warnings: verticalizationTreeSchema.properties.warnings,
   },
 } as const;
 const idempotencyHeader = {
@@ -380,7 +417,13 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
           operationId: "importMaterialIndex", summary: "Importar um ou mais conjuntos de páginas de índice para revisão", security: protectedSecurity,
           parameters: [{ name: "materialId", in: "path", required: true, schema: { type: "string", format: "uuid" } }, idempotencyHeader],
           requestBody: { required: true, content: json({ type: "object", required: ["sourceKind", "pageOffset"], properties: { sourceKind: { type: "string", enum: ["manual", "pdf", "image"] }, sourceFilename: { type: "string" }, mimeType: { type: "string", enum: ["application/pdf", "image/png", "image/jpeg", "image/webp"] }, base64: { type: "string", maxLength: 8_000_000 }, pageOffset: { type: "integer" }, basedOnVersionId: { type: "string", format: "uuid", description: "Versão anterior à qual esta nova fonte será anexada cumulativamente." }, items: { type: "array", maxItems: 500 } } }) },
-          responses: { "201": response("Versão validada para revisão"), "400": response("Entrada inválida", errorSchema), "422": response("Arquivo ou saída inválida recuperável", errorSchema) },
+          responses: {
+            "201": response("Versão manual validada para revisão"),
+            "202": response("Extração automática aceita como ProcessingJob", { type: "object", required: ["job"], properties: { job: { $ref: "#/components/schemas/ProcessingJob" } } }),
+            "400": response("Entrada inválida", errorSchema),
+            "422": response("Arquivo ou saída inválida recuperável", errorSchema),
+            "503": response("Configuração de IA inválida ou extração indisponível", aiConfigurationErrorSchema),
+          },
         },
       },
       "/materials/{materialId}/index-versions/{versionId}/revisions": {
@@ -433,6 +476,7 @@ export function createProjectApiDocument(openIdConnectUrl: string) {
         Project: projectSchema,
         DocumentVersion: documentVersionSchema,
         ProcessingJob: processingJobSchema,
+        VerticalizationSuggestion: verticalizationSuggestionSchema,
         AcceptedDocument: acceptedDocumentSchema,
         VerticalizationEvidence: evidenceSchema,
         VerticalizationTree: verticalizationTreeSchema,

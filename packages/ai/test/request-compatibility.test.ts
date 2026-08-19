@@ -44,6 +44,45 @@ test("structured requests cap completion without sending sampling parameters to 
   }
 });
 
+test("returns OpenRouter's complete usage accounting without losing cache or upstream cost fields", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    id: "generation-accounting", model: "openai/resolved-model", provider: "Azure",
+    choices: [{ message: { content: JSON.stringify({ value: "ok" }) } }],
+    usage: {
+      prompt_tokens: 194, completion_tokens: 7, total_tokens: 201, cost: 0.95,
+      prompt_tokens_details: { cached_tokens: 90, cache_write_tokens: 100, audio_tokens: 4 },
+      completion_tokens_details: { reasoning_tokens: 5 },
+      cost_details: { upstream_inference_cost: 0.72 },
+    },
+  }), { status: 200, headers: { "content-type": "application/json" } });
+
+  try {
+    const client = new OpenRouterClient({
+      apiKey: "test-key", appName: "test", baseUrl: "https://openrouter.test",
+      dataCollection: "deny", maxRetries: 0, maxTokens: 128,
+      maxCostUsd: 0.25, minimumEvidenceConfidence: 0.75,
+      models: ["openai/resolved-model"], pdfEngine: "native", timeoutMs: 1_000,
+      documentTransferApproved: true, localPdfParsingApproved: false, zeroDataRetention: true,
+    });
+    const completion = await client.completeStructured({
+      promptVersion: "test@1", systemPrompt: "Return JSON", userContent: [{ type: "text", text: "test" }],
+      schemaName: "test", jsonSchema: { type: "object" }, resultSchema: z.object({ value: z.string() }), usePdfParser: false,
+    });
+    assert.deepEqual(completion.audit, {
+      requestId: "generation-accounting", model: "openai/resolved-model", provider: "Azure",
+      promptVersion: "test@1", durationMs: completion.audit.durationMs,
+      usage: {
+        promptTokens: 194, completionTokens: 7, totalTokens: 201, cost: 0.95,
+        cachedTokens: 90, cacheWriteTokens: 100, audioTokens: 4,
+        reasoningTokens: 5, upstreamInferenceCost: 0.72,
+      },
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("a timed-out paid request is not submitted again automatically", async () => {
   const originalFetch = globalThis.fetch;
   let calls = 0;

@@ -419,6 +419,13 @@ class MaterialsController {
     catch (error) {
       if (error instanceof MaterialNotFoundError) throw new NotFoundException("Material ou versão não encontrada.");
       if (error instanceof MaterialVersionInvalidError) throw new UnprocessableEntityException({ code: "invalid_index", message: error.message });
+      if (error instanceof AiConfigurationError) {
+        throw new ServiceUnavailableException({
+          code: "ai_configuration_invalid",
+          message: error.message,
+          variables: [...error.missingVariables, ...error.invalidVariables],
+        });
+      }
       throw error;
     }
   }

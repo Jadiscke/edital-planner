@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { DeleteObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import type { Pool, PoolClient } from "pg";
+import type { AiService } from "@planejador/ai";
 
 import {
   validatePdf,
@@ -17,6 +18,7 @@ interface PipelineOptions {
   s3: S3Client;
   bucket: string;
   queue?: DocumentJobQueue;
+  aiService?: Pick<AiService, "checkConfiguration">;
   validateAiConfiguration?: () => void | Promise<void>;
 }
 
@@ -36,6 +38,9 @@ interface PersistedUploadRow {
   status: ProcessingJob["status"];
   correlation_id: string;
   error_code: string | null;
+  review_reasons: ProcessingJob["reviewReasons"] | null;
+  inference: ProcessingJob["inference"] | null;
+  review_suggestion: ProcessingJob["reviewSuggestion"] | null;
   job_created_at: Date;
   job_updated_at: Date;
 }
@@ -47,6 +52,9 @@ interface PersistedJobRow {
   status: ProcessingJob["status"];
   correlation_id: string;
   error_code: string | null;
+  review_reasons: ProcessingJob["reviewReasons"] | null;
+  inference: ProcessingJob["inference"] | null;
+  review_suggestion: ProcessingJob["reviewSuggestion"] | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -69,6 +77,9 @@ function toAcceptedDocument(row: PersistedUploadRow): AcceptedDocument {
       status: row.status,
       correlation_id: row.correlation_id,
       error_code: row.error_code,
+      review_reasons: row.review_reasons,
+      inference: row.inference,
+      review_suggestion: row.review_suggestion,
       created_at: row.job_created_at,
       updated_at: row.job_updated_at,
     }),
@@ -76,9 +87,6 @@ function toAcceptedDocument(row: PersistedUploadRow): AcceptedDocument {
 }
 
 function toJob(row: PersistedJobRow): ProcessingJob {
-  const reviewReasons = row.error_code?.startsWith("human_review:")
-    ? row.error_code.slice("human_review:".length).split(",").filter(Boolean) as ProcessingJob["reviewReasons"]
-    : undefined;
   return {
     id: row.id,
     kind: "document_verticalization",
@@ -86,8 +94,10 @@ function toJob(row: PersistedJobRow): ProcessingJob {
     projectId: row.project_id,
     status: row.status,
     correlationId: row.correlation_id,
-    ...(row.error_code && !reviewReasons ? { errorCode: row.error_code } : {}),
-    ...(reviewReasons?.length ? { reviewReasons } : {}),
+    ...(row.error_code ? { errorCode: row.error_code } : {}),
+    ...(row.review_reasons?.length ? { reviewReasons: row.review_reasons } : {}),
+    ...(row.inference ? { inference: row.inference } : {}),
+    ...(row.review_suggestion ? { reviewSuggestion: row.review_suggestion } : {}),
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -97,7 +107,7 @@ const acceptedUploadSql = `
   SELECT
     d.id AS document_id, d.project_id, d.version_number, d.filename, d.sha256,
     d.size_bytes, d.created_at AS document_created_at,
-    j.id AS job_id, j.status, j.correlation_id, j.error_code,
+    j.id AS job_id, j.status, j.correlation_id, j.error_code, j.review_reasons, j.inference, j.review_suggestion,
     j.created_at AS job_created_at, j.updated_at AS job_updated_at
   FROM document_upload_idempotency i
   JOIN document_versions d ON d.id = i.document_version_id
@@ -117,7 +127,11 @@ export class PostgresS3DocumentPipeline implements DocumentPipeline {
     filename: string;
     bytes: Uint8Array;
   }): Promise<AcceptedDocument> {
-    await this.options.validateAiConfiguration?.();
+    if (this.options.aiService) {
+      await this.options.aiService.checkConfiguration();
+    } else {
+      await this.options.validateAiConfiguration?.();
+    }
     validatePdf(input.bytes);
     const client = await this.options.pool.connect();
     let objectKey: string | undefined;
@@ -197,7 +211,8 @@ export class PostgresS3DocumentPipeline implements DocumentPipeline {
 
   async getJob(identity: IdentityContext, jobId: string): Promise<ProcessingJob | undefined> {
     const result = await this.options.pool.query<PersistedJobRow>(
-      `SELECT id, document_version_id, project_id, status, correlation_id, error_code, created_at, updated_at
+      `SELECT id, document_version_id, project_id, status, correlation_id, error_code,
+              review_reasons, inference, review_suggestion, created_at, updated_at
        FROM processing_jobs WHERE id = $1 AND tenant_id = $2 AND kind = 'document_verticalization'`,
       [jobId, identity.tenantId],
     );

@@ -152,6 +152,11 @@ p { text-wrap: pretty; }
 .upload-action:hover { background: #183b59; }
 .upload-status { min-height: 1.4rem; margin: .75rem 0 .2rem; color: #4c647a; overflow-wrap: anywhere; }
 .upload-status[role="alert"] { color: var(--error); font-weight: 700; }
+.upload-feedback--recovery { margin-top: .75rem; padding: .9rem; border: 1.5px solid #c14d3d; border-left-width: .4rem; border-radius: .3rem; background: #fff3f0; }
+.upload-feedback--recovery .upload-status { margin: 0; }
+.status-retry-action { width: 100%; min-height: 2.9rem; margin-top: .8rem; padding: .55rem .8rem; border: 1.5px solid var(--ink); border-radius: .3rem; background: var(--ink); color: white; font: inherit; font-weight: 760; cursor: pointer; }
+.status-retry-action:hover { background: #183b59; }
+.status-retry-action:focus-visible { outline: 3px solid var(--highlight); outline-offset: 3px; }
 .job-correlation { display: block; color: #667c90; overflow-wrap: anywhere; }
 .review-notice { margin: .7rem 0; padding: .9rem 1rem; border: 1px solid #bd8b23; border-left: .4rem solid #bd8b23; background: #fff8e6; color: var(--ink); }
 .review-notice h3 { margin: 0; font-family: var(--font-ui); font-size: 1rem; }

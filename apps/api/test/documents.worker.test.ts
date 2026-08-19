@@ -7,6 +7,7 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testconta
 import { GenericContainer, type StartedTestContainer, Wait } from "testcontainers";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createAiService } from "@planejador/ai";
 
 import { ProjectService } from "../../../packages/domain/src/projects.ts";
 import { PostgresS3DocumentPipeline } from "../src/documents/pipeline.ts";
@@ -24,7 +25,7 @@ function fixtureAiService() {
       audit: {
         requestId: "fixture-generation", promptVersion: "verticalize-edital@1.0.0",
         model: "fixture/schema-validator", provider: null, durationMs: 12,
-        usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, cachedTokens: 0, reasoningTokens: 0, cost: 0 },
+        usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, cachedTokens: 3, cacheWriteTokens: 2, audioTokens: 1, reasoningTokens: 4, cost: 0.01, upstreamInferenceCost: 0.008 },
       },
     }),
   };
@@ -50,6 +51,10 @@ async function eventually<T>(read: () => Promise<T>, accepts: (value: T) => bool
 }
 
 const runInfrastructureTests = hasDockerRuntime();
+const runPaidLiveReviewTest = process.env.RUN_OPENROUTER_PAID_LIVE_TESTS === "true"
+  && process.env.OPENROUTER_DOCUMENT_TRANSFER_APPROVED === "true"
+  && Boolean(process.env.OPENROUTER_API_KEY)
+  && Boolean(process.env.OPENROUTER_PRIMARY_MODEL);
 if (process.env.CI === "true" && !runInfrastructureTests) {
   throw new Error("CI requires Docker for the real document worker integration test");
 }
@@ -118,23 +123,61 @@ describe.skipIf(!runInfrastructureTests)("document processing with real Redis an
     expect(await queue.getJobData(uploaded.job.id)).toEqual({ jobId: uploaded.job.id });
 
     const verticalizations = new PostgresVerticalizationRepository(pool);
-    const worker = startDocumentWorker({ connection, queueName, pool, s3, bucket: "editais-worker-test", aiService: fixtureAiService(), verticalizations });
+    const worker = startDocumentWorker({ connection, queueName, pool, s3, bucket: "editais-worker-test", aiService: fixtureAiService() });
     try {
       const completed = await eventually(
         () => pipeline.getJob(identity, uploaded.job.id),
         (job) => job?.status === "completed",
       );
-      expect(completed).toMatchObject({ status: "completed", documentVersionId: uploaded.documentVersion.id });
+      expect(completed).toMatchObject({
+        status: "completed", documentVersionId: uploaded.documentVersion.id,
+        inference: {
+          requestId: "fixture-generation", model: "fixture/schema-validator", provider: null,
+          promptVersion: "verticalize-edital@1.0.0", durationMs: 12,
+          usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, cachedTokens: 3, cacheWriteTokens: 2, audioTokens: 1, reasoningTokens: 4, cost: 0.01, upstreamInferenceCost: 0.008 },
+        },
+      });
       expect(await verticalizations.getByDocumentVersion(identity, uploaded.documentVersion.id)).toMatchObject({
         documentVersionId: uploaded.documentVersion.id,
         documentVersionNumber: 1,
-        execution: { promptVersion: "verticalize-edital@1.0.0", model: "fixture/schema-validator", totalTokens: 30, latencyMs: 12 },
+        execution: { promptVersion: "verticalize-edital@1.0.0", model: "fixture/schema-validator", totalTokens: 30, cachedTokens: 3, cacheWriteTokens: 2, audioTokens: 1, reasoningTokens: 4, cost: 0.01, upstreamInferenceCost: 0.008, latencyMs: 12 },
       });
     } finally {
       await worker.close();
       await queue.close();
     }
   });
+
+  it.skipIf(!runPaidLiveReviewTest)("durably exposes a real OpenRouter suggestion for review without publishing it as a functional tree", async () => {
+    const queueName = `documents-live-review-${Date.now()}`;
+    const connection = { host: redis.getHost(), port: redis.getMappedPort(6379), maxRetriesPerRequest: null };
+    const queue = new BullMqDocumentQueue({ connection, queueName });
+    const pipeline = new PostgresS3DocumentPipeline({ pool, s3, bucket: "editais-worker-test", queue });
+    const identity = { issuer: "https://issuer.test", subjectId: "candidate-live-review", tenantId: "tenant-live-review" };
+    const project = await new ProjectService(new PostgresProjectRepository(pool)).create(
+      identity, { concurso: "DATAPREV", cargo: "Analista", area: "Tecnologia" }, "project-live-review-001",
+    );
+    const bytes = await readFile(new URL("../../../docs/pdfs-tests/edital-retificado-dataprev.pdf", import.meta.url));
+    const uploaded = await pipeline.upload({ identity, projectId: project.id, idempotencyKey: "upload-live-review-001", filename: "edital.pdf", bytes });
+    const verticalizations = new PostgresVerticalizationRepository(pool);
+    const worker = startDocumentWorker({
+      connection, queueName, pool, s3, bucket: "editais-worker-test",
+      aiService: createAiService(process.env),
+      reviewPolicy: { minimumEvidenceConfidence: 1.1, maxCostUsd: Number.MAX_VALUE },
+    });
+    try {
+      const review = await eventually(() => pipeline.getJob(identity, uploaded.job.id), (job) => job?.status === "needs_review");
+      expect(review).toMatchObject({
+        status: "needs_review", reviewReasons: ["low_evidence"],
+        inference: { requestId: expect.any(String), model: expect.any(String), promptVersion: "verticalize-edital@1.0.0" },
+        reviewSuggestion: { documentVersionId: uploaded.documentVersion.id, subjects: expect.any(Array) },
+      });
+      expect(await verticalizations.getByDocumentVersion(identity, uploaded.documentVersion.id)).toBeUndefined();
+    } finally {
+      await worker.close();
+      await queue.close();
+    }
+  }, 120_000);
 
   it("retries a missing private object and persists a recoverable failure", async () => {
     const queueName = `documents-failure-${Date.now()}`;
@@ -165,7 +208,7 @@ describe.skipIf(!runInfrastructureTests)("document processing with real Redis an
 
     const worker = startDocumentWorker({
       connection, queueName, pool, s3, bucket: "editais-worker-test",
-      aiService: fixtureAiService(), verticalizations: new PostgresVerticalizationRepository(pool),
+      aiService: fixtureAiService(),
     });
     try {
       const failed = await eventually(

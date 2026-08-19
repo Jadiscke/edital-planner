@@ -108,9 +108,17 @@ describe("DevelopmentDocumentPipeline", () => {
     await vi.waitFor(async () => expect((await pipeline.getJob(identity, accepted.job.id))?.status).toBe("needs_review"));
     expect(await pipeline.getJob(identity, accepted.job.id)).toMatchObject({
       reviewReasons: ["low_evidence"],
-      inference: { requestId: "generation-review", model: "fallback/resolved", usage: { totalTokens: 30, cost: 0.01 } },
+      inference: {
+        requestId: "generation-review", model: "fallback/resolved", provider: "Provider",
+        promptVersion: "verticalize-edital@1.0.0", durationMs: 80,
+        usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30, cachedTokens: 0, reasoningTokens: 0, cost: 0.01 },
+      },
+      reviewSuggestion: expect.objectContaining({
+        documentVersionId: accepted.documentVersion.id,
+        subjects: [expect.objectContaining({ normalizedName: "Direito" })],
+      }),
     });
-    expect(await verticalizations.getByDocumentVersion(identity, accepted.documentVersion.id)).toBeDefined();
+    expect(await verticalizations.getByDocumentVersion(identity, accepted.documentVersion.id)).toBeUndefined();
   });
 
   it("rejects invalid AI configuration before creating a document or job", async () => {
