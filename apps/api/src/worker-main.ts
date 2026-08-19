@@ -4,7 +4,6 @@ import { createDocumentInfrastructure } from "./documents/infrastructure.ts";
 import { startDocumentWorker } from "./documents/worker.ts";
 import { assertRuntimeDatabaseRole } from "./persistence/runtime-role.ts";
 import { createAiService } from "@planejador/ai";
-import { PostgresVerticalizationRepository } from "./verticalizations/repository.ts";
 import { PostgresMaterialRepository } from "./persistence/materials.ts";
 import { createMaterialIndexExtractor } from "./material-index-extractor.ts";
 
@@ -18,6 +17,7 @@ const pool = new Pool({
 await assertRuntimeDatabaseRole(pool);
 const infrastructure = createDocumentInfrastructure(process.env);
 const aiService = createAiService(process.env);
+const aiConfiguration = await aiService.checkConfiguration();
 const worker = startDocumentWorker({
   connection: infrastructure.connection,
   queueName: infrastructure.queueName,
@@ -25,9 +25,12 @@ const worker = startDocumentWorker({
   s3: infrastructure.s3,
   bucket: infrastructure.bucket,
   aiService,
-  verticalizations: new PostgresVerticalizationRepository(pool),
   materialIndexExtractor: createMaterialIndexExtractor(aiService),
   materials: new PostgresMaterialRepository(pool),
+  reviewPolicy: {
+    minimumEvidenceConfidence: aiConfiguration.minimumEvidenceConfidence,
+    maxCostUsd: aiConfiguration.maxCostUsd,
+  },
 });
 
 async function shutdown() {

@@ -38,7 +38,8 @@ describe("verticalization promotion", () => {
     expect(promoted.subjects[0]?.topics[0]?.subtopics[0]?.evidence[0]?.page).toBe(14);
     expect(promoted.execution).toEqual({
       requestId: "generation-1", promptVersion: "verticalize-edital@1.0.0", model: "deepseek/deepseek-v4-flash",
-      provider: "DeepSeek", latencyMs: 842, promptTokens: 120, completionTokens: 80, totalTokens: 200, cost: 0.00004,
+      provider: "DeepSeek", latencyMs: 842, promptTokens: 120, completionTokens: 80, totalTokens: 200,
+      cachedTokens: 0, reasoningTokens: 0, cost: 0.00004,
     });
     expect(await repository.getByDocumentVersion({ tenantId: "tenant-a" }, fixture.documentVersionId)).toEqual(promoted);
   });

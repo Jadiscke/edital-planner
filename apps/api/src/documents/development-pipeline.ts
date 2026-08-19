@@ -4,10 +4,12 @@ import { OpenRouterResponseError, OpenRouterStructuredOutputError } from "@plane
 import { InMemoryDocumentPipeline, type AcceptedDocument, type DocumentPipeline } from "../../../../packages/domain/src/documents.ts";
 import type { VerticalizationRepository } from "../../../../packages/domain/src/verticalizations.ts";
 import { InvalidVerticalizationOutputError, promoteVerticalization } from "../verticalizations/promotion.ts";
+import { evaluateVerticalizationReview } from "../verticalizations/review-policy.ts";
 
 interface DevelopmentPipelineOptions {
   verticalizations: VerticalizationRepository;
-  aiService: Pick<AiService, "verticalizeEdital">;
+  aiService: Pick<AiService, "checkConfiguration" | "verticalizeEdital">;
+  reviewPolicy?: { minimumEvidenceConfidence: number; maxCostUsd: number };
 }
 
 export class DevelopmentDocumentPipeline extends InMemoryDocumentPipeline {
@@ -18,6 +20,9 @@ export class DevelopmentDocumentPipeline extends InMemoryDocumentPipeline {
   }
 
   override async upload(input: Parameters<DocumentPipeline["upload"]>[0]): Promise<AcceptedDocument> {
+    if (input.processingMode !== "fixture") {
+      await this.options.aiService.checkConfiguration?.();
+    }
     const accepted = await super.upload(input);
     if (!this.scheduledJobs.has(accepted.job.id)) {
       this.scheduledJobs.add(accepted.job.id);
@@ -41,15 +46,23 @@ export class DevelopmentDocumentPipeline extends InMemoryDocumentPipeline {
             pdf: { fileName: input.filename, base64: Buffer.from(input.bytes).toString("base64") },
             ...(input.contestHints ? { contestHints: input.contestHints } : {}),
           });
-      await promoteVerticalization({
-        identity: input.identity,
-        projectId: input.projectId,
-        documentVersionNumber: accepted.documentVersion.versionNumber,
-        expectedDocumentVersionId: accepted.documentVersion.id,
-        repository: this.options.verticalizations,
-        completion,
+      if (input.processingMode === "fixture") {
+        await this.promote(input, accepted, completion);
+        await this.complete(accepted.job.id, completion.audit);
+        return;
+      }
+      const decision = evaluateVerticalizationReview({
+        result: completion.data,
+        audit: completion.audit,
+        minimumEvidenceConfidence: this.options.reviewPolicy?.minimumEvidenceConfidence ?? 0.75,
+        maxCostUsd: this.options.reviewPolicy?.maxCostUsd ?? 0.25,
       });
-      await this.complete(accepted.job.id);
+      if (decision.outcome === "needs_review") {
+        await this.requireReview(accepted.job.id, [...decision.reasons], completion.audit, completion.data);
+      } else {
+        await this.promote(input, accepted, completion);
+        await this.complete(accepted.job.id, completion.audit);
+      }
     } catch (error) {
       if (error instanceof InvalidVerticalizationOutputError || error instanceof OpenRouterStructuredOutputError) {
         await this.rejectInvalidOutput(accepted.job.id);
@@ -62,7 +75,22 @@ export class DevelopmentDocumentPipeline extends InMemoryDocumentPipeline {
     }
   }
 
-  private fixture(documentVersionId: string) {
+  private async promote(
+    input: Parameters<DocumentPipeline["upload"]>[0],
+    accepted: AcceptedDocument,
+    completion: Awaited<ReturnType<AiService["verticalizeEdital"]>>,
+  ): Promise<void> {
+    await promoteVerticalization({
+      identity: input.identity,
+      projectId: input.projectId,
+      documentVersionNumber: accepted.documentVersion.versionNumber,
+      expectedDocumentVersionId: accepted.documentVersion.id,
+      repository: this.options.verticalizations,
+      completion,
+    });
+  }
+
+  private fixture(documentVersionId: string): Awaited<ReturnType<AiService["verticalizeEdital"]>> {
     return {
       data: {
         documentVersionId,
@@ -95,6 +123,6 @@ export class DevelopmentDocumentPipeline extends InMemoryDocumentPipeline {
         requestId: "e2e-fixture", promptVersion: "verticalize-edital@1.0.0", model: "fixture/schema-validator", provider: null,
         durationMs: 12, usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, cachedTokens: 0, reasoningTokens: 0, cost: null },
       },
-    } as const;
+    };
   }
 }

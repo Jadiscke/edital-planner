@@ -1,4 +1,4 @@
-import { bigint, index, integer, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { bigint, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 export const localIdentitiesTable = pgTable("local_identities", {
   id: uuid("id").primaryKey(), issuer: text("issuer").notNull(), subjectId: text("subject_id").notNull(),
@@ -113,6 +113,9 @@ export const processingJobsTable = pgTable("processing_jobs", {
   status: text("status").notNull().default("pending"),
   correlationId: uuid("correlation_id").notNull(),
   errorCode: text("error_code"),
+  reviewReasons: text("review_reasons").array(),
+  inference: jsonb("inference"),
+  reviewSuggestion: jsonb("review_suggestion"),
   attempts: integer("attempts").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

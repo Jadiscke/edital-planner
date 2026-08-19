@@ -17,6 +17,7 @@ const STATUS_COPY = {
   pending: "Edital recebido. Aguardando processamento.",
   processing: "Verificando e organizando o edital…",
   completed: "Edital verticalizado com evidência.",
+  needs_review: "Revisão humana necessária.",
   failed_recoverable: "Processamento interrompido. Tente enviar novamente.",
   failed_invalid_output: "A extração não passou pela validação. Nenhuma árvore foi publicada.",
 } as const;
@@ -71,6 +72,8 @@ export function EditalUpload({ onVerticalization }: { onVerticalization?: (tree:
     skipPollingIfUnfocused: true,
     refetchOnMountOrArgChange: true,
   });
+  const jobErrorStatus = (job.error as { status?: unknown } | undefined)?.status;
+  const hasPollingError = jobId.length > 0 && job.isError && jobErrorStatus !== 404;
   const statusRef = useRef<HTMLParagraphElement>(null);
   const verticalization = useGetVerticalizationQuery(job.data?.documentVersionId ?? "", { skip: job.data?.status !== "completed" });
 
@@ -94,7 +97,7 @@ export function EditalUpload({ onVerticalization }: { onVerticalization?: (tree:
   useEffect(() => {
     if (!job.data) return;
     setMessage(jobStatusCopy(job.data));
-    setIsError(job.data.status === "failed_recoverable");
+    setIsError(job.data.status === "failed_recoverable" || job.data.status === "failed_invalid_output");
     setShouldPoll(job.data.status === "pending" || job.data.status === "processing");
   }, [job.data]);
   useEffect(() => {
@@ -106,6 +109,13 @@ export function EditalUpload({ onVerticalization }: { onVerticalization?: (tree:
     setIsError(true);
     setMessage("O processamento anterior não está mais disponível. Envie o PDF novamente para iniciar uma nova tentativa.");
   }, [job.error, job.isError, project]);
+  useEffect(() => {
+    const responseStatus = (job.error as { status?: unknown } | undefined)?.status;
+    if (!jobId || !job.isError || responseStatus === 404) return;
+    setShouldPoll(false);
+    setIsError(true);
+    setMessage("Não foi possível atualizar o andamento. Seu edital continua registrado; apenas não conseguimos consultar o status agora. Verifique sua conexão e tente novamente.");
+  }, [job.error, job.isError, jobId]);
   useEffect(() => { if (isError) statusRef.current?.focus(); }, [isError, message]);
   useEffect(() => {
     if (verticalization.data?.subjects?.length) onVerticalization?.(verticalization.data);
@@ -212,10 +222,34 @@ export function EditalUpload({ onVerticalization }: { onVerticalization?: (tree:
         <label className="file-trigger" htmlFor="edital-file">Selecionar PDF</label>
         <strong>{file?.name ?? "Nenhum arquivo selecionado"}</strong>
       </div>
-      <button className="upload-action" type="button" disabled={uploadState.isLoading} onClick={() => { void submit(); }}>
+      {!hasPollingError ? <button className="upload-action" type="button" disabled={uploadState.isLoading} onClick={() => { void submit(); }}>
         {uploadState.isLoading ? "Enviando…" : job.data?.status === "failed_recoverable" || job.data?.status === "failed_invalid_output" ? "Tentar Novo Processamento" : processingMode === "full" ? "Enviar Edital Completo" : "Enviar Edital"}
-      </button>
-      <p ref={statusRef} tabIndex={-1} className="upload-status" role={isError ? "alert" : "status"} aria-live="polite">{message}</p>
+      </button> : null}
+      <div className={hasPollingError ? "upload-feedback upload-feedback--recovery" : "upload-feedback"}>
+        <p ref={statusRef} tabIndex={-1} className="upload-status" role={isError ? "alert" : "status"} aria-live="polite">{message}</p>
+      {hasPollingError ? (
+        <button
+          type="button"
+          className="status-retry-action"
+          onClick={() => {
+            setIsError(false);
+            setMessage("Atualizando andamento…");
+            void job.refetch();
+          }}
+        >
+          Tentar Atualizar Status
+        </button>
+      ) : null}
+      </div>
+      {job.data?.status === "needs_review" ? <aside className="review-notice" aria-labelledby="review-notice-title">
+        <h3 id="review-notice-title">Revisão humana necessária</h3>
+        <ul>
+          {job.data.reviewReasons?.includes("low_evidence") ? <li>Há itens com evidência abaixo do limite configurado.</li> : null}
+          {job.data.reviewReasons?.includes("cost_limit_exceeded") ? <li>O custo ficou acima do limite configurado.</li> : null}
+          {job.data.reviewReasons?.includes("cost_unavailable") ? <li>O provedor não informou o custo da execução.</li> : null}
+        </ul>
+        <small>Conteúdo gerado por IA não equivale a aprovação. Confira as evidências antes de usar a árvore.</small>
+      </aside> : null}
       {job.data ? <small className="job-correlation">Correlação: <span translate="no">{job.data.correlationId}</span></small> : null}
     </section>
   );

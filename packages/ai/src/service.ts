@@ -1,4 +1,5 @@
 import {
+  AiConfigurationError,
   loadOpenRouterConfig,
   toConfigurationDiagnostic,
   type AiConfigurationDiagnostic,
@@ -107,6 +108,12 @@ export function createAiService(
 
   return {
     async checkConfiguration() {
+      if (!config.localPdfParsingApproved && !config.documentTransferApproved) {
+        throw new AiConfigurationError([], [
+          "OPENROUTER_DOCUMENT_TRANSFER_APPROVED",
+          "LOCAL_PDF_PARSING_APPROVED",
+        ]);
+      }
       return toConfigurationDiagnostic(config);
     },
 
@@ -132,12 +139,15 @@ export function createAiService(
                 provider: null,
                 requestId: `local-${parsed.documentVersionId}`,
                 usage: {
+                  audioTokens: 0,
                   cachedTokens: 0,
+                  cacheWriteTokens: 0,
                   completionTokens: 0,
                   cost: 0,
                   promptTokens: 0,
                   reasoningTokens: 0,
                   totalTokens: 0,
+                  upstreamInferenceCost: 0,
                 },
               },
             };

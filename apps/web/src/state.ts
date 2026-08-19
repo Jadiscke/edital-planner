@@ -28,9 +28,15 @@ export interface ProcessingJob {
   sourceFilename?: string;
   resultVersionId?: string;
   projectId: string;
-  status: "pending" | "processing" | "completed" | "failed_recoverable" | "failed_invalid_output";
+  status: "pending" | "processing" | "completed" | "needs_review" | "failed_recoverable" | "failed_invalid_output";
   correlationId: string;
   errorCode?: string;
+  reviewReasons?: ("low_evidence" | "cost_limit_exceeded" | "cost_unavailable")[];
+  inference?: {
+    requestId: string; model: string; provider: string | null; promptVersion: string; durationMs: number;
+    usage: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; cacheWriteTokens?: number; audioTokens?: number; reasoningTokens: number; cost: number | null; upstreamInferenceCost?: number | null };
+  };
+  reviewSuggestion?: { documentVersionId: string; contest: { name: string; role: string; area: string }; examOptions: ExamOption[]; subjects: VerticalizationSubject[]; warnings: string[] };
   createdAt: string;
   updatedAt: string;
 }
@@ -61,7 +67,7 @@ export interface VerticalizationSubject extends VerticalizationNode { examOption
 export interface VerticalizationTree {
   id: string; projectId: string; documentVersionId: string; documentVersionNumber: number;
   contest: { name: string; role: string; area: string }; examOptions: ExamOption[]; subjects: VerticalizationSubject[]; warnings: string[]; createdAt: string;
-  execution: { requestId: string; promptVersion: string; model: string; provider: string | null; promptTokens: number; completionTokens: number; totalTokens: number; cost: number | null; latencyMs: number };
+  execution: { requestId: string; promptVersion: string; model: string; provider: string | null; promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; cacheWriteTokens?: number; audioTokens?: number; reasoningTokens: number; cost: number | null; upstreamInferenceCost?: number | null; latencyMs: number };
 }
 
 interface ApiRequest {

@@ -31,6 +31,7 @@ import {
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter } from "@nestjs/platform-fastify";
 import { createMaterialSchema, createProjectApiDocument, createProjectSchema, importMaterialIndexSchema, reviseMaterialIndexSchema, toFieldErrors, updateProjectSchema } from "@planejador/contracts";
+import { AiConfigurationError } from "@planejador/ai";
 import {
   ProjectNotFoundError,
   ProjectService,
@@ -283,6 +284,13 @@ class DocumentsController {
       if (error instanceof DocumentRejectedError) {
         throw new UnprocessableEntityException({ code: error.code, message: error.message });
       }
+      if (error instanceof AiConfigurationError) {
+        throw new ServiceUnavailableException({
+          code: "ai_configuration_invalid",
+          message: error.message,
+          variables: [...error.missingVariables, ...error.invalidVariables],
+        });
+      }
       throw error;
     }
   }
@@ -411,6 +419,13 @@ class MaterialsController {
     catch (error) {
       if (error instanceof MaterialNotFoundError) throw new NotFoundException("Material ou versão não encontrada.");
       if (error instanceof MaterialVersionInvalidError) throw new UnprocessableEntityException({ code: "invalid_index", message: error.message });
+      if (error instanceof AiConfigurationError) {
+        throw new ServiceUnavailableException({
+          code: "ai_configuration_invalid",
+          message: error.message,
+          variables: [...error.missingVariables, ...error.invalidVariables],
+        });
+      }
       throw error;
     }
   }

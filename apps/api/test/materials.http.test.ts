@@ -1,17 +1,19 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { AiConfigurationError } from "@planejador/ai";
 
 import { InMemoryDocumentPipeline } from "../../../packages/domain/src/documents.ts";
 import { InMemoryMaterialRepository } from "../../../packages/domain/src/materials.ts";
 import { InMemoryProjectRepository } from "../../../packages/domain/src/projects.ts";
 import { createApi, type MaterialIndexExtractor } from "../src/app.ts";
+import type { MaterialIndexProcessingPipeline } from "../src/material-index-processing.ts";
 import { InMemoryMembershipResolver } from "../src/authorization.ts";
 import { InMemorySessionStore } from "../src/sessions.ts";
 
 const identity = { issuer: "https://id.test", subjectId: "candidate", tenantId: "tenant-a" };
 const apps: Awaited<ReturnType<typeof createApi>>[] = [];
-async function api(materialIndexExtractor?: MaterialIndexExtractor) {
+async function api(materialIndexExtractor?: MaterialIndexExtractor, materialIndexPipeline?: MaterialIndexProcessingPipeline) {
   const memberships = new InMemoryMembershipResolver(); memberships.allow(identity.issuer, identity.subjectId, identity.tenantId);
-  const app = await createApi({ projects: new InMemoryProjectRepository(), documents: new InMemoryDocumentPipeline(), materials: new InMemoryMaterialRepository(), ...(materialIndexExtractor ? { materialIndexExtractor } : {}), sessions: new InMemorySessionStore(), memberships,
+  const app = await createApi({ projects: new InMemoryProjectRepository(), documents: new InMemoryDocumentPipeline(), materials: new InMemoryMaterialRepository(), ...(materialIndexExtractor ? { materialIndexExtractor } : {}), ...(materialIndexPipeline ? { materialIndexPipeline } : {}), sessions: new InMemorySessionStore(), memberships,
     verifyAccessToken: async () => ({ ...identity, requestedTenantId: identity.tenantId }), allowedOrigins: ["http://127.0.0.1:4173"], secureCookies: false, trustedProxyIps: [], openIdConnectUrl: "https://id.test/.well-known/openid-configuration" });
   apps.push(app); return app;
 }
@@ -29,6 +31,28 @@ async function resultVersion(app: Awaited<ReturnType<typeof createApi>>, accepte
 }
 
 describe("material index HTTP journey", () => {
+  it("returns an actionable contract when AI configuration prevents automatic extraction", async () => {
+    const pipeline: MaterialIndexProcessingPipeline = {
+      submit: async () => { throw new AiConfigurationError(["OPENROUTER_API_KEY"], ["OPENROUTER_DATA_COLLECTION"]); },
+      getJob: async () => undefined,
+    };
+    const app = await api(undefined, pipeline);
+    const project = await app.inject({ method: "POST", url: "/projects", headers: { ...auth, "idempotency-key": "project-index-config" }, payload: { concurso: "TRF", cargo: "Analista", area: "Judiciária" } });
+    const material = await app.inject({ method: "POST", url: `/projects/${project.json().id}/materials`, headers: { ...auth, "idempotency-key": "material-index-config" }, payload: { title: "Manual", edition: "2026" } });
+
+    const response = await app.inject({
+      method: "POST", url: `/materials/${material.json().id}/index-versions`, headers: { ...auth, "idempotency-key": "automatic-index-config" },
+      payload: { sourceKind: "pdf", sourceFilename: "indice.pdf", mimeType: "application/pdf", base64: Buffer.from("%PDF-").toString("base64"), pageOffset: 0 },
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({
+      code: "ai_configuration_invalid",
+      message: "Configuração de IA inválida. Defina: OPENROUTER_API_KEY. Corrija: OPENROUTER_DATA_COLLECTION.",
+      variables: ["OPENROUTER_API_KEY", "OPENROUTER_DATA_COLLECTION"],
+    });
+  });
+
   it("lists the tenant materials for a project so the workspace can be restored after reload", async () => {
     const app = await api();
     const project = await app.inject({ method: "POST", url: "/projects", headers: { ...auth, "idempotency-key": "project-material-list" }, payload: { concurso: "TRF", cargo: "Analista", area: "Judiciária" } });
