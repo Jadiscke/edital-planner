@@ -13,3 +13,4 @@ playwright-report/
 nvim.log
 .astro/
 graphify-out/
+.handoffs/
