@@ -11,23 +11,25 @@ Construir uma plataforma web que transforme editais e índices de materiais em u
 
 ## Progresso e fila para agentes
 
-Concluídas: issues 01, 02 e 04.
+Concluídas: issues 01, 02, 04, 06 e 18.
 
-Despacho recomendado a partir de 2026-08-10:
+Despacho recomendado a partir de 2026-08-19:
 
-| Frente | Issue | Pode iniciar | Prioridade | Fronteira de trabalho |
-| --- | --- | --- | --- | --- |
-| A | **05 — verticalizar edital com evidência** | agora | caminho crítico | edital processado → árvore consultável; não implementar editor de aprovação |
-| B | **08 — importar e revisar índice de material** | agora, em paralelo | alta | cadastro e índice de material; não criar associações com o edital |
-| C | **03 — arquivar e duplicar projeto** | agora, em paralelo | normal | ciclo de vida de projeto; não alterar documentos ou inferência |
+| Frente | Issue | Estado | Pode iniciar | Prioridade | Dependências satisfeitas | Fronteira de trabalho |
+| --- | --- | --- | --- | --- | --- | --- |
+| A | **05 — verticalizar edital com evidência** | `ready-for-agent` | agora | caminho crítico | 04 concluída | edital processado → árvore consultável; não implementar editor de aprovação |
+| B | **08 — importar e revisar índice de material** | `ready-for-agent` | agora, em paralelo | alta | 02 concluída | cadastro e índice de material; não criar associações com o edital |
+| C | **03 — arquivar e duplicar projeto** | `ready-for-agent` | agora, em paralelo | normal | 02 concluída | ciclo de vida de projeto; não alterar documentos ou inferência |
+| D | **19 — ciclo de cobrança e acesso** | `ready-for-agent` | agora, em paralelo | alta | 18 concluída | eventos de cobrança, grace period e convergência de entitlements; não implementar novos planos |
+| E | **20 — investigar e repetir ProcessingJob** | `ready-for-agent` | agora, em paralelo | alta | 04 e 06 concluídas | investigação e replay operacional; não alterar a regra de negócio dos jobs |
 
 Regras de despacho:
 
 1. cada agente parte da `main` atualizada, trabalha em worktree e branch próprias e entrega exatamente uma issue por PR;
-2. as frentes A, B e C podem executar simultaneamente, mas devem preservar contratos compartilhados e evitar refatorações alheias à própria fatia;
-3. após o merge da issue 05, o próximo agente livre recebe a issue 06;
-4. a issue 07 só começa após 05 e 06; a issue 09 só começa após 07 e 08;
-5. a prioridade de produto é A, depois B, depois C; isso não impede trabalho paralelo.
+2. as frentes A–E podem executar simultaneamente, mas devem preservar contratos compartilhados; os merges continuam seriais e cada agente evita refatorações alheias à própria fatia;
+3. a issue 07 só começa após 05 e 06; como 06 já está concluída, 05 é o único bloqueio restante dessa frente;
+4. a issue 09 só começa após 07 e 08; a issue 21 só começa após 19; as demais issues continuam aguardando suas dependências declaradas;
+5. a prioridade de produto é A, depois B/D/E, depois C; isso não impede trabalho paralelo.
 
 Essa separação preserva revisão, reversão e validação independentes e reduz conflitos entre PRs.
 
