@@ -167,6 +167,7 @@ AI processing follows separate extraction, normalization, and matching stages. M
 - private S3-compatible object storage
 - an OpenID Connect provider for authenticated API development
 - an OpenRouter API key for live AI operations
+- a Stripe test account for hosted checkout and sandbox contract verification
 
 ### Install and configure
 
@@ -183,6 +184,8 @@ Update `.env` for your local services. At minimum, API development requires:
 - `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and `S3_DOCUMENT_BUCKET`;
 - `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_CLIENT_ID`, and `OIDC_CALLBACK_URL`;
 - the remaining OIDC security settings documented in `.env.example`.
+
+Billing stays disabled unless `PAYMENTS_ENABLED=true`. When enabled, prefer a restricted Stripe API key (`rk_test_` in the sandbox) with only the permissions required to read Prices and Subscriptions and create Checkout Sessions; `sk_test_` remains accepted for sandbox verification. Configure the signed webhook secret and a recurring Price ID whose BRL amount and monthly interval match the published catalog. The API verifies that Price before creating a hosted Checkout Session; card number and security code never cross the application boundary. Subscription webhooks are signature- and timestamp-validated, queued in Redis, reconciled against Stripe by the worker, and committed idempotently to PostgreSQL. Run the opt-in real contracts with `RUN_STRIPE_SANDBOX=true pnpm --filter @planejador/api test:billing:live`.
 
 The API deliberately refuses to start if the runtime database role can create objects in the `public` schema. See [`docs/authentication.md`](docs/authentication.md) for database-role and OIDC requirements.
 
@@ -253,6 +256,8 @@ pnpm --filter @planejador/api test
 ```
 
 Live OpenRouter tests are opt-in. One checks the real HTTP authentication contract using an intentionally invalid credential at no model cost; the paid smoke test requires a valid key. Read the AI package README before enabling either one.
+
+Stripe Billing tests are also opt-in. `pnpm --filter @planejador/api test:billing:live` uses a sandbox key and configured Price; the full provider → inbox → Redis → worker → PostgreSQL path additionally requires Docker plus an existing sandbox subscription identified by `STRIPE_TEST_SUBSCRIPTION_ID` and matching `STRIPE_TEST_TENANT_ID`. The test only reads Stripe state and never creates a charge or refund.
 
 ## Roadmap
 

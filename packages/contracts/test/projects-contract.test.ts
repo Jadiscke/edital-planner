@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createProjectSchema, projectApiDocument, toFieldErrors } from "../src/projects.ts";
+import { billingCheckoutSchema, createProjectSchema, projectApiDocument, toFieldErrors } from "../src/projects.ts";
 
 test("the project contract reports actionable errors for every invalid field", () => {
   const result = createProjectSchema.safeParse({ concurso: "", cargo: "A", area: "" });
@@ -78,4 +78,28 @@ test("the OpenAPI contract exposes material index review and explicit approval",
   ];
   assert.deepEqual(operations.map((operation) => operation.operationId), ["importMaterialIndex", "reviseMaterialIndex", "approveMaterialIndex"]);
   assert.ok(operations.every((operation) => operation.parameters.some((parameter) => parameter.name === "Idempotency-Key")));
+});
+
+test("the OpenAPI contract exposes hosted checkout, reconciliation and backend entitlement authorization", () => {
+  const checkout = projectApiDocument.paths["/billing/checkout"].post;
+  assert.deepEqual(checkout.security, [{ cookieSession: [] }, { oidc: [] }]);
+  assert.equal(checkout.parameters[0]?.name, "Idempotency-Key");
+  assert.equal("security" in projectApiDocument.paths["/billing/webhooks/stripe"].post, false);
+  assert.equal(projectApiDocument.paths["/billing/restricted/advanced-planning"].get.responses["403"].description, "Entitlement ausente");
+
+  assert.equal(billingCheckoutSchema.safeParse({ planId: "rota-pro", cardNumber: "4242" }).success, false);
+  const catalog = projectApiDocument.paths["/billing/catalog"].get.responses["200"].content?.["application/json"].schema as {
+    items: { additionalProperties: boolean; required: string[]; properties: {
+      limits: { required: string[] }; capabilities: { items: { enum: string[] } };
+    } };
+  };
+  const catalogItem = catalog.items;
+  assert.equal(catalogItem.additionalProperties, false);
+  assert.deepEqual(catalogItem.required, ["id", "version", "name", "priceInCents", "currency", "interval", "limits", "renewsAutomatically", "cancellationTerms", "capabilities"]);
+  assert.deepEqual(catalogItem.properties.limits.required, ["activeProjects", "aiDocumentPagesPerMonth"]);
+  assert.equal(catalogItem.properties.capabilities.items.enum[0], "advanced_planning");
+  const checkoutResponse = checkout.responses["201"].content?.["application/json"].schema as { additionalProperties: boolean };
+  assert.equal(checkoutResponse.additionalProperties, false);
+  const entitlements = projectApiDocument.paths["/billing/entitlements"].get.responses["200"].content?.["application/json"].schema as { additionalProperties: boolean };
+  assert.equal(entitlements.additionalProperties, false);
 });
